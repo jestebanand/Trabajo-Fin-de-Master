@@ -1,0 +1,32 @@
+﻿E. Edificación y Vivienda
+Mercado de la vivienda
+Compra-Venta de Viviendas
+Estadística registral inmobiliaria: datos anuales por distritos
+4.2.1.6. Precio medio  declarado de la vivienda (euros/m2) por Distrito y Barrio según Tipo de vivienda
+;;2018;2019;2020;2021;2022;2023;2024
+;;Euros/m2;Euros/m2;Euros/m2;Euros/m2;Euros/m2;Euros/m2;Euros/m2
+;;Usadas;Usadas;Usadas;Usadas;Usadas;Usadas;Usadas
+01. Centro;011. Palacio;"4.105,46";"5.044,74";"5.020,78";"4.797,38";"5.298,63";"5.694,12";"6.355,20"
+01. Centro;016. Sol;"5.129,22";"5.308,95";"9.249,31";"5.124,68";"5.085,19";"5.727,20";"7.181,43"
+02. Arganzuela;021. Imperial;"3.402,02";"3.866,36";"3.812,72";"3.837,21";"4.062,56";"4.348,05";"4.779,25"
+02. Arganzuela;022. Acacias;"3.810,39";"4.498,48";"4.425,40";"4.233,28";"4.360,66";"4.653,80";"4.822,66"
+02. Arganzuela;023. Chopera;"3.449,53";"3.706,90";"3.843,18";"3.551,00";"4.198,35";"4.175,28";"4.461,43"
+02. Arganzuela;024. Legazpi;"4.208,88";"4.572,26";"4.400,98";"4.276,10";"4.815,98";"4.541,91";"5.106,08"
+09. Moncloa-Aravaca;091. Casa de Campo;"3.136,31";"3.419,56";"3.472,16";"3.895,85";"4.148,06";"4.331,28";"4.442,58"
+10. Latina;101. Los Cármenes;"1.983,09";"2.427,96";"2.287,05";"2.453,60";"2.664,71";"2.731,98";"2.901,78"
+10. Latina;102. Puerta del Ángel;"2.338,19";"2.579,80";"2.554,93";"2.613,76";"2.772,14";"2.832,68";"3.239,32"
+10. Latina;103. Lucero;"2.066,87";"2.239,02";"2.298,54";"2.274,44";"2.404,30";"2.456,39";"2.819,89"
+10. Latina;104. Aluche;"2.006,86";"2.178,93";"2.208,90";"2.238,48";"2.364,21";"2.467,98";"2.694,20"
+11. Carabanchel;111. Comillas;"2.320,67";"2.499,15";"2.593,01";"2.624,75";"2.839,48";"2.790,07";"3.310,50"
+11. Carabanchel;112. Opañel;"1.983,76";"2.223,60";"2.428,42";"2.418,67";"2.344,68";"2.413,89";"2.696,82"
+11. Carabanchel;113. San Isidro;"2.034,54";"2.162,99";"2.554,90";"2.495,53";"2.542,48";"2.590,40";"3.071,40"
+12. Usera;12. Usera;"1.789,41";"1.935,18";"1.945,22";"2.040,74";"2.147,55";"2.288,84";"2.495,19"
+12. Usera;124. Almendrales;"2.297,50";"2.146,67";"2.040,64";"2.451,06";"2.293,63";"2.691,87";"2.930,51"
+12. Usera;125. Moscardó;"1.958,46";"2.117,73";"2.089,54";"2.138,68";"2.346,49";"2.702,17";"2.752,89"
+12. Usera;127. Pradolongo;"1.329,35";"1.879,58";"1.967,73";"1.875,16";"0,00";"0,00";"2.381,69"
+13. Puente de Vallecas;136. Numancia;"1.777,46";"2.008,42";"2.023,55";"1.944,20";"2.191,41";"2.261,13";"2.693,13"
+;
+;
+"Fuente: Colegio de Registradores de la Propiedad, Bienes Muebles y Mercantiles de España"
+"Observaciones: Tasa de cobertura:  La información recoge 96,8% de las transmisiones de 2007;97,6% de 2008;98,1% de 2009;96,2% de 2010;97,9% de 2011;97,5% de 2012;97,5% de 2013;96,4% de 2014;98,1% de 2009; 96,2% de 2010;97,9% de 2011;97,5% de 2012;97,5% de 2013;96,4% de 2014;96,1% de 2015;97,3% de 2016;97,1% de 2017;98,0% de 2018; 98,4% de 2019; 95,3% de 2020;95,6% del 2021,97,5% de 2022;97,5 de 2023 y 97,7 de 2024 (compraventas de viviendas con transmisión del 100% del dominio sobre la propiedad) y de las constituciones de hipotecas recogidas por los Registros de la Propiedad y las referidas al municipio de Madrid. En 2017 cambia de nombre el barrio de San Andrés por Casco histórico de Villaverde; en Villa de Vallecas se crea el barrio de Ensanche de Vallecas y en Vicálvaro se reestructuran los barrios.
+Para evitar ofrecer dar datos poco significativos, sólo se muestra el dato por barrio cuando se dispone de un número mínimo de 15 casos para calcular la media; sin embargo el dato de distrito siempre recoge todos los casos."
