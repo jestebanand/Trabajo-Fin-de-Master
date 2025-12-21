@@ -1,0 +1,5466 @@
+---
+title: "TFM"
+author: "Jorge Esteban"
+date: "2025-12-12"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+
+
+
+## Datos socioeconomicos
+
+```{r}
+
+library(readxl)
+library(dplyr)
+library(purrr)
+library(tidyr)
+library(stringr)
+```
+
+```{r}
+ruta <- "C:/MASTER DATA SCIENCE/5 semestre/TFM/DATOS/Socioeconomico por barrio"
+
+archivos <- list.files(
+  path = ruta,
+  pattern = "\\.xls[x]?$",
+  full.names = TRUE
+)
+
+excel_sheets(archivos[1])
+basename(archivos)
+sapply(archivos, extraer_anio)
+
+```
+```{r}
+library(readxl)
+
+latina_raw <- read_excel(
+  path = archivos[1],   # usa el archivo correcto
+  sheet = "LATINA",
+  col_names = FALSE
+)
+
+View(latina_raw)
+```
+
+
+
+```{r}
+nombres_barrios <- latina_raw[2, ] |> unlist()
+nombres_barrios <- nombres_barrios %>%
+  as.character() %>%
+  str_trim()
+cols_barrios <- which(!is.na(nombres_barrios) & nombres_barrios != "")
+cols_validas <- c(1, cols_barrios)
+
+nombres_barrios[cols_validas]
+
+latina_data <- latina_raw[-c(1,2), cols_validas]
+names(latina_data) <- nombres_barrios[cols_validas]
+
+latina_data <- latina_data %>%
+  rename(indicador = 1)
+
+head(latina_data)
+
+latina_limpia <- latina_data %>%
+  filter(
+    !str_detect(indicador, "^\\d+\\.")   # elimina títulos tipo 1.1, 2.3...
+  ) %>%
+  filter(
+    !str_detect(indicador, "^[A-ZÁÉÍÓÚÜÑ\\s-]+$")  # elimina bloques en mayúsculas
+  )
+
+latina_limpia <- latina_limpia %>%
+  filter(
+    rowSums(is.na(across(-indicador))) < ncol(.) - 1
+  )
+
+latina_limpia <- latina_limpia %>%
+  mutate(
+    across(
+      -indicador,
+      ~ as.numeric(str_replace(., ",", "."))
+    )
+  )
+
+latina_long <- latina_limpia %>%
+  pivot_longer(
+    cols = -indicador,
+    names_to = "barrio",
+    values_to = "valor"
+  )
+
+head(latina_long)
+
+unique(latina_long$indicador)
+summary(latina_long$valor)
+```
+
+
+```{r}
+library(readxl)
+library(dplyr)
+library(tidyr)
+library(stringr)
+
+# Ruta ejemplo (ajústala)
+path_excel <- "C:/MASTER DATA SCIENCE/5 semestre/TFM/DATOS/Socioeconomico por barrio/panel_indicadores_distritos_barrios_2018.xls"
+hoja <- "CENTRO"
+
+raw <- read_excel(
+  path = path_excel,
+  sheet = hoja,
+  col_names = FALSE
+)
+
+raw[1:15, 1:15]
+
+```
+```{r}
+# Fila de barrios
+barrios_raw <- raw[2, ] |> unlist() |> as.character()
+
+# Columnas donde hay nombre de barrio
+cols_barrios <- which(!is.na(barrios_raw) & barrios_raw != "")
+
+# Creamos tabla barrio -> columnas
+barrios_tbl <- tibble(
+  barrio = barrios_raw[cols_barrios],
+  col_pct = cols_barrios,
+  col_abs = cols_barrios + 1
+)
+
+barrios_tbl
+
+
+```
+
+```{r}
+library(readxl)
+library(dplyr)
+library(tidyr)
+library(stringr)
+
+
+
+ruta <- "C:/MASTER DATA SCIENCE/5 semestre/TFM/DATOS/Socioeconomico por barrio/panel_indicadores_distritos_barrios_2019.xls"
+
+anio <- str_extract(ruta, "\\d{4}") |> as.integer()
+```
+
+```{r}
+#Lectura excel Socioeconomico
+df_raw <- read_excel(ruta, sheet = "CENTRO", col_names = FALSE)
+
+colnames(df_raw) <- df_raw[2, ] |> unlist()
+df <- df_raw[-c(1, 2), ]
+
+colnames(df) <- as.character(colnames(df))
+colnames(df)[is.na(colnames(df)) | colnames(df) == ""] <- 
+  paste0("V", which(is.na(colnames(df)) | colnames(df) == ""))
+
+df <- df |> select(where(~ !all(is.na(.))))
+colnames(df)[1] <- "indicador"
+
+str(df)
+
+```
+
+```{r}
+# Limpieza y normalizacion
+
+df <- df |>
+  mutate(
+    indicador = indicador |>
+      as.character() |>
+      str_replace_all("\n", " ") |>
+      str_squish()
+  )
+
+df <- df |>
+  mutate(
+    indicador_normalizado = case_when(
+      str_starts(indicador, "Hogares con un hombre solo") ~
+        "Hogares con un hombre solo mayor de 65 años",
+      str_starts(indicador, "Hogares con una mujer sola") ~
+        "Hogares con una mujer sola mayor de 65 años",
+      str_detect(indicador, "Renta neta media anual de los hogares") ~
+        "Renta neta media anual de los hogares",
+      str_detect(indicador, "Renta disponible Bruta Per Cápita") ~
+        "Renta disponible Bruta Per Cápita",
+      str_detect(indicador, "Tasa bruta de natalidad") ~
+        "Tasa bruta de natalidad",
+      str_detect(indicador, "Paro registrado") ~
+        "Paro registrado",
+      str_detect(indicador, "Proporción de inmigrantes") ~
+        "Proporción de inmigrantes",
+      # Proporción de inmigrantes (nombre nuevo desde 2022)
+      str_detect(indicador, "Proporción de personas migrantes") ~
+        "Proporción de inmigrantes",
+      str_detect(indicador, "Población en etapas educativas") ~
+        "Población en etapas educativas",
+      TRUE ~ indicador
+    )
+  )
+
+count(df, indicador_normalizado)
+
+```
+
+```{r}
+indicadores_objetivo <- c(
+  "Edad media de la población",
+  "Población en etapas educativas",
+  "Tamaño medio del hogar",
+  "Renta neta media anual de los hogares",
+  "Renta disponible Bruta Per Cápita",
+  "Bachiller Elemental, Graduado Escolar, ESO, Formación profesional 1º grado",
+  "Titulados medios, diplomados, arquitecto o ingeniero técnico",
+  "Estudios superiores, licenciado, arquitecto o ingeniero superior, estudios superiores no universitarios, doctorado, estudios postgraduados",
+  "Hogares con un hombre solo mayor de 65 años",
+  "Hogares con una mujer sola mayor de 65 años",
+  "Proporción de inmigrantes",
+  "Tasa bruta de natalidad",
+  "Paro registrado"
+)
+
+
+df_obj <- df |>
+  filter(indicador_normalizado %in% indicadores_objetivo)
+
+nrow(df_obj)        # ≈ 13
+ncol(df_obj)        # MUCHAS columnas (barrios)
+
+
+
+```
+
+```{r}
+#Seleccion valor absoluto o porcentaje en funcion de la variable
+
+tipo_valor_indicador <- tibble::tibble(
+  indicador = c(
+    "Edad media de la población",
+    "Población en etapas educativas",
+    "Tamaño medio del hogar",
+    "Renta neta media anual de los hogares",
+    "Renta disponible Bruta Per Cápita",
+    "Bachiller Elemental, Graduado Escolar, ESO, Formación profesional 1º grado",
+    "Titulados medios, diplomados, arquitecto o ingeniero técnico",
+    "Estudios superiores, licenciado, arquitecto o ingeniero superior, estudios superiores no universitarios, doctorado, estudios postgraduados",
+    "Hogares con un hombre solo mayor de 65 años",
+    "Hogares con una mujer sola mayor de 65 años",
+    "Proporción de inmigrantes",
+    "Tasa bruta de natalidad",
+    "Paro registrado"
+  ),
+  tipo_valor = c(
+    "absoluto",
+    "porcentaje",
+    "absoluto",
+    "absoluto",
+    "absoluto_distrito",
+    "porcentaje",
+    "porcentaje",
+    "porcentaje",
+    "porcentaje",
+    "porcentaje",
+    "porcentaje",
+    "absoluto",
+    "absoluto"
+  )
+)
+
+# Excluir columnas de texto
+cols_datos <- setdiff(
+  colnames(df_obj),
+  c("indicador", "indicador_normalizado")
+)
+
+cols_datos
+length(cols_datos)
+
+# Extraer nombre del distrito (posición fija)
+nombre_distrito <- cols_datos[3]
+
+nombre_distrito
+
+cols_distrito_y_barrios  <- cols_datos[-c(1, 2)]
+
+cols_distrito_y_barrios 
+length(cols_distrito_y_barrios )
+
+```
+
+```{r}
+
+# Agrupar de dos en dos
+pares_columnas <- split(
+  cols_distrito_y_barrios,
+  ceiling(seq_along(cols_distrito_y_barrios) / 2)
+)
+
+pares_columnas
+
+
+elegir_columna <- function(df, indicador, par_cols, tipo_valor) {
+
+  if (tipo_valor == "porcentaje") {
+    return(par_cols[1])  # la primera suele ser porcentaje
+  }
+
+  if (tipo_valor == "absoluto") {
+    return(par_cols[2])  # la segunda suele ser valor absoluto
+  }
+
+  if (tipo_valor == "absoluto_distrito") {
+    return(par_cols[2])  # se trata luego
+  }
+}
+
+library(purrr)
+df_largo <- map_dfr(
+  unique(df_obj$indicador_normalizado),
+  function(ind) {
+
+    cat("\nProcesando indicador:", ind, "\n")
+
+    tipo <- tipo_valor_indicador |>
+      filter(indicador == ind) |>
+      pull(tipo_valor)
+
+    if (length(tipo) == 0) {
+      stop(paste("❌ No hay tipo_valor para:", ind))
+    }
+
+    fila_ind <- df_obj |>
+      filter(indicador_normalizado == ind)
+
+    map_dfr(
+      pares_columnas,
+      function(par) {
+
+        col_usar <- if (tipo == "porcentaje") {
+          par[1]
+        } else {
+          par[2]
+        }
+
+        tibble(
+          indicador = ind,
+          barrio = par[1],
+          valor = as.character(fila_ind[[col_usar]])
+        )
+      }
+    )
+  }
+)
+
+dim(df_largo)
+head(df_largo, 20)
+
+df_largo |>
+  count(indicador)
+
+```
+
+```{r}
+# Tratar valores nulos
+
+df_largo <- df_largo |>
+  group_by(indicador) |>
+  mutate(
+    valor = if_else(
+      barrio != nombre_distrito & (is.na(valor) | valor == ""),
+      valor[barrio == nombre_distrito][1],
+      valor
+    )
+  ) |>
+  ungroup()
+
+df_largo |>
+  filter(indicador %in% c(
+    "Renta disponible Bruta Per Cápita",
+    "Tasa bruta de natalidad"
+  ))
+
+
+
+
+```
+
+
+```{r}
+#Dejo la hoja limpia, eliminando distrito y añadiendo columna anio y distrito
+
+df_largo <- df_largo |>
+  filter(barrio != nombre_distrito)
+
+
+df_largo |>
+  count(indicador)
+
+df_largo <- df_largo |>
+  mutate(anio = anio)
+
+df_largo <- df_largo |>
+  mutate(distrito = nombre_distrito)
+
+```
+
+```{r}
+procesar_hoja <- function(ruta, sheet) {
+
+  library(readxl)
+  library(dplyr)
+  library(stringr)
+  library(purrr)
+  library(tibble)
+
+  # Extraer año desde la ruta
+  anio <- str_extract(ruta, "\\d{4}") |> as.integer()
+
+  # =========================
+  # 1. Lectura del Excel
+  # =========================
+  df_raw <- read_excel(ruta, sheet = sheet, col_names = FALSE)
+
+  colnames(df_raw) <- df_raw[2, ] |> unlist()
+  df <- df_raw[-c(1, 2), ]
+
+  colnames(df) <- as.character(colnames(df))
+  colnames(df)[is.na(colnames(df)) | colnames(df) == ""] <-
+    paste0("V", which(is.na(colnames(df)) | colnames(df) == ""))
+
+  df <- df |> select(where(~ !all(is.na(.))))
+  colnames(df)[1] <- "indicador"
+
+  # =========================
+  # 2. Limpieza y normalización
+  # =========================
+  df <- df |>
+    mutate(
+      indicador = indicador |>
+        as.character() |>
+        str_replace_all("\n", " ") |>
+        str_squish()
+    )
+
+  df <- df |>
+    mutate(
+      indicador_normalizado = case_when(
+        str_starts(indicador, "Hogares con un hombre solo") ~
+          "Hogares con un hombre solo mayor de 65 años",
+        str_starts(indicador, "Hogares con una mujer sola") ~
+          "Hogares con una mujer sola mayor de 65 años",
+        str_detect(indicador, "Renta neta media anual de los hogares") ~
+          "Renta neta media anual de los hogares",
+        str_detect(indicador, "Renta disponible Bruta Per Cápita") ~
+          "Renta disponible Bruta Per Cápita",
+        str_detect(indicador, "Tasa bruta de natalidad") ~
+          "Tasa bruta de natalidad",
+        str_detect(indicador, "Paro registrado") ~
+          "Paro registrado",
+        str_detect(indicador, "Proporción de inmigrantes") ~
+          "Proporción de inmigrantes",
+        # Proporción de inmigrantes (nombre nuevo desde 2022)
+        str_detect(indicador, "Proporción de personas migrantes") ~
+        "Proporción de inmigrantes",
+       str_detect(indicador, "Población en etapas educativas") ~
+        "Población en etapas educativas",
+     
+         # ---------------------------
+  # EDUCACIÓN — NIVEL BAJO
+  # ---------------------------
+  str_detect(
+    indicador,
+    "No sabe leer|Primaria incompleta|Bachiller Elemental|Graduado Escolar|ESO|Formación profesional 1"
+  ) ~
+    "Bachiller Elemental, Graduado Escolar, ESO, Formación profesional 1º grado",
+  
+  # ---------------------------
+  # EDUCACIÓN — SECUNDARIA SUPERIOR (FP2 / BUP)
+  # ---------------------------
+  str_detect(
+    indicador,
+    "Formación profesional 2|Bachiller Superior|BUP"
+  ) ~
+    "Formación profesional 2º grado, Bachiller Superior o BUP",
+  
+  # ---------------------------
+  # EDUCACIÓN — TITULACIONES MEDIAS
+  # ---------------------------
+  str_detect(
+    indicador,
+    "titulaci[oó]n media|titulaciones medias|diplomatura|diplomad|ingenier[ií]a técnica|arquitectura técnica"
+  ) ~
+    "Titulados medios, diplomados, arquitecto o ingeniero técnico",
+  
+  # ---------------------------
+  # EDUCACIÓN — ESTUDIOS SUPERIORES
+  # ---------------------------
+  str_detect(
+    indicador,
+    "estudios superiores|licenciatura|licenciado|doctorado|postgraduado|posgrado|ingenier[ií]a sup|arquitectura superior"
+  ) ~
+    "Estudios superiores, licenciado, arquitecto o ingeniero superior, estudios superiores no universitarios, doctorado, estudios postgraduados",
+  
+  TRUE ~ indicador
+)
+    )
+
+  # =========================
+  # 3. Filtrar indicadores objetivo
+  # =========================
+  indicadores_objetivo <- c(
+    "Edad media de la población",
+    "Población en etapas educativas",
+    "Tamaño medio del hogar",
+    "Renta neta media anual de los hogares",
+    "Renta disponible Bruta Per Cápita",
+    "Bachiller Elemental, Graduado Escolar, ESO, Formación profesional 1º grado",
+    "Titulados medios, diplomados, arquitecto o ingeniero técnico",
+    "Estudios superiores, licenciado, arquitecto o ingeniero superior, estudios superiores no universitarios, doctorado, estudios postgraduados",
+    "Hogares con un hombre solo mayor de 65 años",
+    "Hogares con una mujer sola mayor de 65 años",
+    "Proporción de inmigrantes",
+    "Tasa bruta de natalidad",
+    "Paro registrado"
+  )
+
+  df_obj <- df |>
+    filter(indicador_normalizado %in% indicadores_objetivo)
+
+  # =========================
+  # 4. Tipo de valor por indicador
+  # =========================
+  tipo_valor_indicador <- tibble(
+    indicador = indicadores_objetivo,
+    tipo_valor = c(
+      "absoluto",
+      "porcentaje",
+      "absoluto",
+      "absoluto",
+      "absoluto_distrito",
+      "porcentaje",
+      "porcentaje",
+      "porcentaje",
+      "porcentaje",
+      "porcentaje",
+      "porcentaje",
+      "absoluto",
+      "absoluto"
+    )
+  )
+
+  # =========================
+  # 5. Preparar columnas de datos
+  # =========================
+  cols_datos <- setdiff(
+    colnames(df_obj),
+    c("indicador", "indicador_normalizado")
+  )
+
+  nombre_distrito <- cols_datos[3]
+
+  cols_distrito_y_barrios <- cols_datos[-c(1, 2)]
+
+  pares_columnas <- split(
+    cols_distrito_y_barrios,
+    ceiling(seq_along(cols_distrito_y_barrios) / 2)
+  )
+
+  # =========================
+  # 6. Construcción formato largo
+  # =========================
+  df_largo <- map_dfr(
+    unique(df_obj$indicador_normalizado),
+    function(ind) {
+
+      tipo <- tipo_valor_indicador |>
+        filter(indicador == ind) |>
+        pull(tipo_valor)
+
+      fila_ind <- df_obj |>
+        filter(indicador_normalizado == ind)
+
+     map_dfr(
+  pares_columnas,
+  function(par) {
+
+    col_usar <- if (tipo == "porcentaje") {
+      par[1]
+    } else {
+      par[2]
+    }
+
+    # 🔒 Blindaje: si la columna no existe, NA
+    valor <- if (!is.na(col_usar) && col_usar %in% colnames(fila_ind)) {
+      as.character(fila_ind[[col_usar]])
+    } else {
+      NA_character_
+    }
+
+    tibble(
+      indicador = ind,
+      barrio = par[1],
+      valor = valor
+    )
+  }
+)
+
+    }
+  )
+
+  # =========================
+  # 7. Rellenar NA con valor del distrito
+  # =========================
+  df_largo <- df_largo |>
+    group_by(indicador) |>
+    mutate(
+      valor = if_else(
+        barrio != nombre_distrito & (is.na(valor) | valor == ""),
+        valor[barrio == nombre_distrito][1],
+        valor
+      )
+    ) |>
+    ungroup()
+
+  # =========================
+  # 8. Dataset final limpio
+  # =========================
+  df_largo |>
+    filter(barrio != nombre_distrito) |>
+    mutate(
+      anio = anio,
+      distrito = nombre_distrito,
+      valor = as.numeric(valor)
+    )
+}
+
+procesar_excel <- function(ruta) {
+
+  library(readxl)
+  library(purrr)
+  library(stringr)
+
+  hojas <- excel_sheets(ruta)
+
+ hojas_validas <- hojas |>
+  keep(~ .x == toupper(.x)) |>
+  discard(~ stringr::str_detect(
+    stringr::str_to_lower(.x),
+    "intro|portada|concepto"
+  ))
+
+
+  message("📄 Procesando archivo: ", ruta)
+  message("📑 Hojas válidas detectadas: ", paste(hojas_validas, collapse = ", "))
+
+  df_excel <- map_dfr(
+    hojas_validas,
+    function(hoja) {
+
+      message("➡️  Procesando hoja: ", hoja)
+
+      res <- procesar_hoja(
+        ruta = ruta,
+        sheet = hoja
+      )
+
+      message("✅ Hoja procesada correctamente: ", hoja)
+
+      res
+    }
+  )
+
+  message("🎉 Excel procesado correctamente")
+
+  df_excel
+}
+
+
+
+```
+
+```{r}
+library(purrr)
+library(readxl)
+
+ruta_2019 <- "C:/MASTER DATA SCIENCE/5 semestre/TFM/DATOS/Socioeconomico por barrio/panel_indicadores_distritos_barrios_2019.xls"
+ruta_2018 <- "C:/MASTER DATA SCIENCE/5 semestre/TFM/DATOS/Socioeconomico por barrio/panel_indicadores_distritos_barrios_2018.xls"
+ruta_2020 <- "C:/MASTER DATA SCIENCE/5 semestre/TFM/DATOS/Socioeconomico por barrio/panel_indicadores_distritos_barrios_2020.xls"
+ruta_2021 <- "C:/MASTER DATA SCIENCE/5 semestre/TFM/DATOS/Socioeconomico por barrio/panel_indicadores_distritos_barrios_2021.xlsx"
+ruta_2022 <- "C:/MASTER DATA SCIENCE/5 semestre/TFM/DATOS/Socioeconomico por barrio/panel_indicadores_distritos_barrios_2022.xlsx"
+ruta_2023 <- "C:/MASTER DATA SCIENCE/5 semestre/TFM/DATOS/Socioeconomico por barrio/panel_indicadores_distritos_barrios_2023.xlsx"
+ruta_2024 <- "C:/MASTER DATA SCIENCE/5 semestre/TFM/DATOS/Socioeconomico por barrio/panel_indicadores_distritos_barrios_2024.xlsx"
+
+
+df_2018 <- procesar_excel(ruta_2018)
+df_2019 <- procesar_excel(ruta_2019)
+df_2020 <- procesar_excel(ruta_2020)
+df_2021 <- procesar_excel(ruta_2021)
+df_2022 <- procesar_excel(ruta_2022)
+df_2023 <- procesar_excel(ruta_2023)
+df_2024 <- procesar_excel(ruta_2024)
+
+dim(df_2019)
+head(df_2019)
+
+df_2019 |> count(distrito)
+df_2019 |> count(indicador)
+
+```
+```{r}
+#añadir 2025 sin reejecutar todo
+procesar_excel_2025 <- function(ruta) {
+
+  library(readxl)
+  library(purrr)
+  library(stringr)
+  library(dplyr)
+
+  hojas <- excel_sheets(ruta)
+
+  # 1. Eliminar hojas no informativas
+  hojas_validas <- hojas |>
+    discard(~ str_detect(
+      str_to_lower(.x),
+      "intro|portada|concepto|indicadores"
+    ))
+
+  # 2. Mantener solo hojas de distritos:
+  #    - MAYÚSCULAS (años antiguos)
+  #    - o formato "NN. Nombre" (2025)
+  hojas_validas <- hojas_validas |>
+    keep(~ .x == toupper(.x) | str_detect(.x, "^\\d{2}\\.\\s"))
+
+  message("📄 Procesando archivo: ", ruta)
+  message("📑 Hojas válidas detectadas: ", paste(hojas_validas, collapse = ", "))
+
+  df_excel <- map_dfr(
+    hojas_validas,
+    function(hoja) {
+
+      message("➡️  Procesando hoja: ", hoja)
+
+      # 3. Extraer nombre limpio del distrito
+      distrito_limpio <- hoja |>
+        str_remove("^\\d{2}\\.\\s*") |>
+        str_to_upper()
+
+      df <- procesar_hoja(
+        ruta = ruta,
+        sheet = hoja
+      )
+
+      # 4. Sobrescribir distrito con nombre limpio
+      df |> mutate(distrito = distrito_limpio)
+    }
+  )
+
+  message("🎉 Excel procesado correctamente")
+
+  df_excel
+}
+
+
+ruta_2025 <- "C:/MASTER DATA SCIENCE/5 semestre/TFM/DATOS/Socioeconomico por barrio/panel_indicadores_distritos_barrios_2025.xlsx"
+
+
+df_2025 <- procesar_excel_2025(ruta_2025)
+```
+##FIN TRATAMIENTO DATOS SOCIOECONOMICOS
+```{r}
+lapply(
+  list(
+    df_2018, df_2019, df_2020,
+    df_2021, df_2022, df_2023, df_2024, df_2025
+  ),
+  colnames
+)
+
+
+
+library(dplyr)
+
+socioeconomico_panel <- bind_rows(
+  df_2018,
+  df_2019,
+  df_2020,
+  df_2021,
+  df_2022,
+  df_2023,
+  df_2024,
+  df_2025
+)
+#unifico registros para variables con mas de uno por año y barrio
+
+bachiller_agregado <- socioeconomico_panel %>%
+  filter(
+    indicador ==
+      "Bachiller Elemental, Graduado Escolar, ESO, Formación profesional 1º grado"
+  ) %>%
+  group_by(barrio, anio) %>%
+  summarise(
+    valor = sum(valor, na.rm = TRUE),
+    indicador = "Bachiller Elemental, Graduado Escolar, ESO, Formación profesional 1º grado",
+    .groups = "drop"
+  )
+
+
+socioeconomico_panel <- socioeconomico_panel %>%
+  filter(
+    indicador !=
+      "Bachiller Elemental, Graduado Escolar, ESO, Formación profesional 1º grado"
+  ) %>%
+  bind_rows(bachiller_agregado)
+
+
+socioeconomico_panel %>%
+  filter(
+    indicador ==
+      "Bachiller Elemental, Graduado Escolar, ESO, Formación profesional 1º grado"
+  ) %>%
+  summarise(
+    filas = n(),
+    barrios = n_distinct(barrio),
+    años = n_distinct(anio)
+  )
+
+
+# Tests final de calidad de socioeconomico_panel
+
+socioeconomico_panel |> count(anio)
+socioeconomico_panel |> count(anio, distrito)
+socioeconomico_panel |> count(anio, barrio)
+socioeconomico_panel |> count(anio, indicador)
+socioeconomico_panel |> summarise(
+  pct_na = mean(is.na(valor))
+)
+
+
+```
+
+
+
+```{r}
+library(readr)
+
+ruta_salida <- "C:/MASTER DATA SCIENCE/5 semestre/TFM/DATOS/socioeconomico_panel_2018_2025.csv"
+
+write_csv(
+  socioeconomico_panel,
+  ruta_salida
+)
+```
+
+
+#DATOS VIVIENDA: 
+
+```{r}
+
+library(dplyr)
+library(tidyr)
+library(stringr)
+library(readr)
+library(purrr)
+
+procesar_vivienda_csv <- function(path_csv,
+                                  indicador_base,
+                                  categorias_validas = NULL,
+                                  anios = 2018:2024) {
+
+  raw <- readr::read_delim(
+    path_csv,
+    delim = ";",
+    col_names = FALSE,
+    locale = readr::locale(decimal_mark = ","),
+    show_col_types = FALSE
+  )
+
+  # Fila 2: categorías
+  categorias <- as.character(unlist(raw[2, ]))
+
+  # Columnas válidas (quitamos Total y vacías)
+  cols_validas <- which(
+    !is.na(categorias) &
+      categorias != "" &
+      categorias != "Total"
+  )
+
+  # Nº de categorías por año
+  n_cat <- length(unique(categorias[cols_validas]))
+
+  # Vector de años (hardcodeado y por posición)
+  anio_vec <- rep(anios, each = n_cat)[seq_along(cols_validas)]
+
+  # Categorías limpias por posición
+  categoria_vec <- categorias[cols_validas]
+
+  # Datos
+  datos <- raw[-c(1,2), c(1,2,cols_validas)]
+
+  colnames(datos) <- c(
+    "distrito_raw",
+    "barrio_raw",
+    paste0("V", seq_along(cols_validas))
+  )
+
+  datos <- datos %>%
+    mutate(
+      distrito = stringr::str_remove(distrito_raw, "^\\d+\\.\\s*"),
+      barrio   = stringr::str_remove(barrio_raw, "^\\d+\\.\\s*")
+    ) %>%
+    select(-distrito_raw, -barrio_raw)
+
+  # Pivotar
+  datos_long <- datos %>%
+    pivot_longer(
+      cols = starts_with("V"),
+      names_to = "tmp",
+      values_to = "valor"
+    ) %>%
+    mutate(
+      idx = as.integer(stringr::str_remove(tmp, "V")),
+      anio = anio_vec[idx],
+      categoria = categoria_vec[idx],
+      indicador = paste(indicador_base, categoria, sep = " – "),
+      bloque = "vivienda",
+      valor = as.numeric(stringr::str_replace_all(valor, "\\.", ""))
+    )
+
+  # 🔎 FILTRO DE CATEGORÍAS (AQUÍ, ANTES DEL SELECT FINAL)
+  if (!is.null(categorias_validas)) {
+    datos_long <- datos_long %>%
+      filter(categoria %in% categorias_validas)
+  }
+
+  # Dataset final (sin categoria)
+  datos_long <- datos_long %>%
+    select(anio, distrito, barrio, bloque, indicador, valor)
+
+  return(datos_long)
+}
+
+
+
+
+
+
+
+```
+##Leemos el excel años de posesion: 
+
+```{r}
+
+
+posesion_long <- procesar_vivienda_csv(
+  "C:/MASTER DATA SCIENCE/5 semestre/TFM/DATOS/vivienda/LIMPIO/Años de posesion limpio 2018-2024.csv",
+  "Años de posesión"
+)
+
+
+```
+##Leemos el excel precio medio:
+```{r}
+
+
+library(dplyr)
+library(tidyr)
+library(stringr)
+library(readr)
+
+# 1️⃣ Leer el CSV limpio
+raw <- read_delim(
+  "C:/MASTER DATA SCIENCE/5 semestre/TFM/DATOS/vivienda/LIMPIO/Precio medio declarado 2018-2024_limpio.csv",
+  delim = ";",
+  col_names = FALSE,
+  locale = locale(decimal_mark = ","),
+  show_col_types = FALSE
+)
+
+# 2️⃣ Extraer cabeceras
+fila_anios <- as.character(unlist(raw[1, ]))
+fila_tipo  <- as.character(unlist(raw[2, ]))
+fila_clase <- as.character(unlist(raw[3, ]))
+
+# 3️⃣ Seleccionar columnas: Euros/m2 + Total
+cols_precio <- which(
+  fila_tipo  == "Euros/m2" &
+  fila_clase == "Total"
+)
+
+# 4️⃣ Extraer datos reales (DESDE FILA 5, incluida)
+datos_precio <- raw[-c(1,2,3,4), c(1, 2, cols_precio)]
+
+# 5️⃣ Nombrar columnas
+colnames(datos_precio) <- c(
+  "distrito_raw",
+  "barrio_raw",
+  fila_anios[cols_precio]
+)
+
+# 6️⃣ Limpiar distrito y barrio (PERO CONSERVARLOS)
+datos_precio <- datos_precio %>%
+  mutate(
+    distrito = str_remove(distrito_raw, "^\\d+\\.\\s*"),
+    barrio   = str_remove(barrio_raw, "^\\d+\\.\\s*")
+  ) %>%
+  select(-distrito_raw, -barrio_raw)
+
+# 7️⃣ Pasar a formato largo
+precio_long <- datos_precio %>%
+  pivot_longer(
+    cols = -c(distrito, barrio),
+    names_to = "anio",
+    values_to = "valor"
+  ) %>%
+  mutate(
+    bloque = "vivienda",
+    indicador = "Precio medio de la vivienda – Euros/m2",
+    valor = as.numeric(
+      str_replace_all(
+        str_replace_all(valor, "\\.", ""),
+        ",", "."
+      )
+    )
+  ) %>%
+  select(anio, distrito, barrio, bloque, indicador, valor)
+
+head(precio_long)
+nrow(precio_long)
+length(unique(precio_long$distrito))
+length(unique(precio_long$barrio))
+length(unique(precio_long$anio))
+
+precio <- precio_long
+```
+
+##Superficie media
+```{r}
+# ===============================
+# TRATAMIENTO SUPERFICIE MEDIA
+# ===============================
+
+library(dplyr)
+library(tidyr)
+library(stringr)
+library(readr)
+
+# 1️⃣ Leer CSV limpio
+raw <- read_delim(
+  "C:/MASTER DATA SCIENCE/5 semestre/TFM/DATOS/vivienda/LIMPIO/Superficie media 2018-2024_limpio.csv",
+  delim = ";",
+  col_names = FALSE,
+  locale = locale(decimal_mark = ","),
+  show_col_types = FALSE
+)
+
+# 2️⃣ Cabeceras
+fila_anios <- as.character(unlist(raw[1, ]))
+fila_cat   <- as.character(unlist(raw[2, ]))
+
+# 3️⃣ Columnas válidas (quitamos 'Total')
+cols_sup <- which(
+  !is.na(fila_cat) &
+  fila_cat != "" &
+  fila_cat != "Total"
+)
+
+# 4️⃣ Extraer datos (desde fila 4 incluida: agregados de distrito incluidos)
+datos_sup <- raw[-c(1,2,3), c(1, 2, cols_sup)]
+
+# 5️⃣ Nombres técnicos únicos
+colnames(datos_sup) <- c(
+  "distrito_raw",
+  "barrio_raw",
+  paste0("V", seq_along(cols_sup))
+)
+
+# 6️⃣ Limpiar distrito y barrio
+datos_sup <- datos_sup %>%
+  mutate(
+    distrito = str_remove(distrito_raw, "^\\d+\\.\\s*"),
+    barrio   = str_remove(barrio_raw, "^\\d+\\.\\s*")
+  ) %>%
+  select(-distrito_raw, -barrio_raw)
+
+# 7️⃣ Vectores de año y categoría por posición
+anio_vec <- fila_anios[cols_sup]
+cat_vec  <- fila_cat[cols_sup]
+
+# 8️⃣ Pivotar y construir dataset final
+superficie_long <- datos_sup %>%
+  pivot_longer(
+    cols = starts_with("V"),
+    names_to = "tmp",
+    values_to = "valor"
+  ) %>%
+  mutate(
+    idx = as.integer(str_remove(tmp, "V")),
+    anio = anio_vec[idx],
+    bloque = "vivienda",
+    indicador = paste("Superficie media", cat_vec[idx], sep = " – "),
+    valor = as.numeric(
+      str_replace_all(
+        str_replace_all(valor, "\\.", ""),
+        ",", "."
+      )
+    )
+  ) %>%
+  select(anio, distrito, barrio, bloque, indicador, valor)
+
+# 9️⃣ Comprobaciones rápidas
+head(superficie_long)
+length(unique(superficie_long$barrio))
+length(unique(superficie_long$anio))
+unique(superficie_long$indicador)
+
+superficie <- superficie_long
+```
+
+##Credito hipotecario
+
+```{r}
+# ===============================
+# TRATAMIENTO CRÉDITO HIPOTECARIO
+# ===============================
+
+library(dplyr)
+library(tidyr)
+library(stringr)
+library(readr)
+
+# 1️⃣ Leer CSV limpio
+raw <- read_delim(
+  "C:/MASTER DATA SCIENCE/5 semestre/TFM/DATOS/vivienda/LIMPIO/crédito hipoteca 2018-2024_limpio.csv",
+  delim = ";",
+  col_names = FALSE,
+  locale = locale(decimal_mark = ","),
+  show_col_types = FALSE
+)
+
+# 2️⃣ Cabeceras
+fila_anios <- as.character(unlist(raw[1, ]))   # 2018, 2019, 2020, 2021...
+fila_cat   <- as.character(unlist(raw[2, ]))   # Viviendas
+
+# 3️⃣ Columnas válidas (solo donde hay año)
+cols_credito <- which(
+  !is.na(fila_anios) &
+  fila_anios != ""
+)
+
+# 4️⃣ Extraer datos (desde la fila 3 incluida)
+datos_cred <- raw[-c(1,2), c(1, 2, cols_credito)]
+
+# 5️⃣ Nombrar columnas
+colnames(datos_cred) <- c(
+  "distrito_raw",
+  "barrio_raw",
+  fila_anios[cols_credito]
+)
+
+# 6️⃣ Limpiar distrito y barrio
+datos_cred <- datos_cred %>%
+  mutate(
+    distrito = str_remove(distrito_raw, "^\\d+\\.\\s*"),
+    barrio   = str_remove(barrio_raw, "^\\d+\\.\\s*")
+  ) %>%
+  select(-distrito_raw, -barrio_raw)
+
+# 7️⃣ Pasar a formato largo
+credito_long <- datos_cred %>%
+  pivot_longer(
+    cols = -c(distrito, barrio),
+    names_to = "anio",
+    values_to = "valor"
+  ) %>%
+  mutate(
+    bloque = "vivienda",
+    indicador = "Crédito hipotecario – Viviendas",
+    valor = as.numeric(
+      str_replace_all(
+        str_replace_all(valor, "\\.", ""),
+        ",", "."
+      )
+    )
+  ) %>%
+  select(anio, distrito, barrio, bloque, indicador, valor)
+
+# 8️⃣ Comprobaciones rápidas
+head(credito_long)
+length(unique(credito_long$barrio))
+length(unique(credito_long$anio))
+summary(credito_long$valor)
+
+
+```
+
+
+
+## Transacciones vivienda
+
+```{r}
+# ==========================================
+# TRANSACCIONES DE VIVIENDA - SOLO TOTAL
+# ==========================================
+
+library(dplyr)
+library(tidyr)
+library(stringr)
+library(readr)
+
+# 1️⃣ Leer CSV limpio
+raw <- read_delim(
+  "C:/MASTER DATA SCIENCE/5 semestre/TFM/DATOS/vivienda/LIMPIO/Transaccion de vivienda por tipo 2018-2024_limpio.csv",
+  delim = ";",
+  col_names = FALSE,
+  locale = locale(decimal_mark = ","),
+  show_col_types = FALSE
+)
+
+# 2️⃣ Cabeceras
+fila_anios <- as.character(unlist(raw[1, ]))
+fila_cat   <- as.character(unlist(raw[2, ]))
+
+# 3️⃣ Seleccionar columnas: SOLO 'Total viviendas'
+cols_trans <- which(
+  fila_cat == "Total viviendas" &
+  !is.na(fila_anios) &
+  fila_anios != ""
+)
+
+# 4️⃣ Extraer datos (desde fila 3 incluida)
+datos_trans <- raw[-c(1,2), c(1, 2, cols_trans)]
+
+# 5️⃣ Asignar nombres técnicos
+colnames(datos_trans) <- c(
+  "distrito_raw",
+  "barrio_raw",
+  paste0("V", seq_along(cols_trans))
+)
+
+# 6️⃣ Limpiar distrito y barrio
+datos_trans <- datos_trans %>%
+  mutate(
+    distrito = str_remove(distrito_raw, "^\\d+\\.\\s*"),
+    barrio   = str_remove(barrio_raw, "^\\d+\\.\\s*")
+  ) %>%
+  select(-distrito_raw, -barrio_raw)
+
+# 7️⃣ Reconstruir año por posición
+anio_vec <- fila_anios[cols_trans]
+
+# 8️⃣ Pivotar y construir dataset final
+transacciones_long <- datos_trans %>%
+  pivot_longer(
+    cols = starts_with("V"),
+    names_to = "tmp",
+    values_to = "valor"
+  ) %>%
+  mutate(
+    idx = as.integer(str_remove(tmp, "V")),
+    anio = anio_vec[idx],
+    bloque = "vivienda",
+    indicador = "Transacciones de vivienda – Total",
+    valor = as.numeric(
+      str_replace_all(
+        str_replace_all(valor, "\\.", ""),
+        ",", "."
+      )
+    )
+  ) %>%
+  select(anio, distrito, barrio, bloque, indicador, valor)
+
+# 9️⃣ Comprobaciones rápidas
+head(transacciones_long)
+length(unique(transacciones_long$barrio))
+length(unique(transacciones_long$anio))
+summary(transacciones_long$valor)
+
+
+```
+
+
+```{r}
+posesion_long      <- posesion_long      %>% mutate(anio = as.integer(anio))
+precio_long        <- precio_long        %>% mutate(anio = as.integer(anio))
+superficie_long    <- superficie_long    %>% mutate(anio = as.integer(anio))
+credito_long       <- credito_long       %>% mutate(anio = as.integer(anio))
+transacciones_long <- transacciones_long %>% mutate(anio = as.integer(anio))
+
+exists("credito_long")
+nrow(credito_long)
+head(credito_long)
+
+
+vivienda_panel <- dplyr::bind_rows(
+  posesion_long,
+  precio_long,
+  superficie_long,
+  credito_long,
+  transacciones_long
+)
+
+
+vivienda_panel
+# Año correcto
+stopifnot(all(vivienda_panel$anio %in% 2018:2024))
+
+# Indicador sin año
+stopifnot(!any(str_detect(vivienda_panel$indicador, "\\d{4}")))
+
+# Bloque correcto
+stopifnot(unique(vivienda_panel$bloque) == "vivienda")
+
+# Valores numéricos
+stopifnot(is.numeric(vivienda_panel$valor))
+
+# Indicadores distintos
+unique(vivienda_panel$indicador)
+
+```
+
+
+```{r}
+stopifnot(is.numeric(vivienda_panel$valor))
+stopifnot(!any(duplicated(names(vivienda_panel))))
+
+```
+
+
+
+# BLOQUE VERDE
+
+```{r}
+to_numeric_safe <- function(x) {
+  if (is.numeric(x)) {
+    return(as.numeric(x))
+  } else {
+    return(
+      as.numeric(
+        stringr::str_replace_all(
+          stringr::str_replace_all(as.character(x), "\\.", ""),
+          ",", "."
+        )
+      )
+    )
+  }
+}
+```
+
+
+```{r}
+# =====================================
+# BLOQUE VERDE – EXCEL 2019
+# =====================================
+
+library(readxl)
+library(dplyr)
+library(stringr)
+library(tidyr)
+
+# ---- PARÁMETROS ----
+ruta_excel <- "C:/MASTER DATA SCIENCE/5 semestre/TFM/DATOS/Verde/SuperficieZonasVerdesDistritosCalles_2019.xlsx"
+anio_verde <- 2019
+umbral_parque_grande <- 15000
+
+# ---- 1️⃣ Leer hoja correcta ----
+raw <- read_excel(
+  ruta_excel,
+  sheet = "ZV Y PARQUES DTO MÁS SUPERFICIE"
+)
+
+# ---- 2️⃣ Seleccionar columnas relevantes ----
+verde_base <- raw %>%
+  select(
+    distrito = NOMBRE_DISTRITO,
+    barrio   = NOMBRE_BARRIO,
+    parque   = `PARQUES Y ZONAS VERDES DE DISTRITO MAYOR SUPERFICIE`,
+    sup_ha   = `SUPERFICIE ha`
+  )
+
+# ---- 3️⃣ Limpieza y conversión ha -> m2 ----
+verde_base <- verde_base %>%
+  mutate(
+    distrito = str_trim(distrito),
+    barrio   = str_trim(barrio),
+    sup_ha   = to_numeric_safe(sup_ha),
+    sup_m2   = sup_ha * 10000
+  ) %>%
+  filter(!is.na(barrio), !is.na(sup_m2))
+
+# ---- 4️⃣ Agregación por barrio ----
+verde_barrio <- verde_base %>%
+  group_by(distrito, barrio) %>%
+  summarise(
+    sup_verde_total = sum(sup_m2, na.rm = TRUE),
+    sup_verde_media = mean(sup_m2, na.rm = TRUE),
+    n_parques_grandes = sum(sup_m2 >= umbral_parque_grande),
+    .groups = "drop"
+  )
+
+# ---- 5️⃣ Pasar a formato panel tidy ----
+verde_2019_long <- verde_barrio %>%
+  mutate(anio = anio_verde, bloque = "verde") %>%
+  pivot_longer(
+    cols = c(sup_verde_total, sup_verde_media, n_parques_grandes),
+    names_to = "indicador",
+    values_to = "valor"
+  ) %>%
+  mutate(
+    indicador = recode(
+      indicador,
+      sup_verde_total   = "Superficie verde total (m2)",
+      sup_verde_media   = "Superficie verde media por parque (m2)",
+      n_parques_grandes = "Número de parques grandes (>15.000 m2)"
+    )
+  ) %>%
+  select(anio, distrito, barrio, bloque, indicador, valor)
+
+# ---- 6️⃣ Comprobaciones ----
+head(verde_2019_long)
+unique(verde_2019_long$indicador)
+length(unique(verde_2019_long$barrio))
+```
+
+
+
+
+```{r}
+
+# =====================================
+# BLOQUE VERDE – EXCEL 2020
+# =====================================
+
+library(readxl)
+library(dplyr)
+library(stringr)
+library(tidyr)
+
+# ---- PARÁMETROS ----
+ruta_excel <- "C:/MASTER DATA SCIENCE/5 semestre/TFM/DATOS/Verde/SuperficieZonasVerdesDistritosCalles_2020.xlsx"
+anio_verde <- 2020
+umbral_parque_grande <- 15000
+
+# ---- 1️⃣ Leer hoja correcta ----
+raw <- read_excel(
+  ruta_excel,
+  sheet = "ZV Y PARQUES DTO MÁS SUPERFICIE"
+)
+
+# ---- 2️⃣ Seleccionar columnas relevantes ----
+verde_base <- raw %>%
+  select(
+    distrito = DISTRITO,
+    barrio   = BARRIO,
+    parque   = `PARQUES Y ZONAS VERDES DE DISTRITO CON MAYOR SUPERFICIE`,
+    sup_m2   = `Superficie (m2)`
+  )
+
+# ---- 3️⃣ Limpieza básica ----
+verde_base <- verde_base %>%
+  mutate(
+    distrito = str_trim(distrito),
+    barrio   = str_trim(barrio),
+    sup_m2 = to_numeric_safe(sup_m2)
+  ) %>%
+  filter(!is.na(barrio), !is.na(sup_m2))
+
+# ---- 4️⃣ Agregación por barrio ----
+verde_barrio <- verde_base %>%
+  group_by(distrito, barrio) %>%
+  summarise(
+    sup_verde_total = sum(sup_m2, na.rm = TRUE),
+    sup_verde_media = mean(sup_m2, na.rm = TRUE),
+    n_parques_grandes = sum(sup_m2 >= umbral_parque_grande),
+    .groups = "drop"
+  )
+
+# ---- 5️⃣ Pasar a formato panel tidy ----
+verde_2020_long <- verde_barrio %>%
+  mutate(anio = anio_verde, bloque = "verde") %>%
+  pivot_longer(
+    cols = c(sup_verde_total, sup_verde_media, n_parques_grandes),
+    names_to = "indicador",
+    values_to = "valor"
+  ) %>%
+  mutate(
+    indicador = recode(
+      indicador,
+      sup_verde_total   = "Superficie verde total (m2)",
+      sup_verde_media   = "Superficie verde media por parque (m2)",
+      n_parques_grandes = "Número de parques grandes (>15.000 m2)"
+    )
+  ) %>%
+  select(anio, distrito, barrio, bloque, indicador, valor)
+
+# ---- 6️⃣ Comprobaciones rápidas ----
+head(verde_2020_long)
+unique(verde_2020_long$indicador)
+length(unique(verde_2020_long$barrio))
+summary(verde_2020_long$valor)
+
+
+```
+
+```{r}
+# =====================================
+# BLOQUE VERDE – EXCEL 2021
+# =====================================
+
+library(readxl)
+library(dplyr)
+library(stringr)
+library(tidyr)
+
+# ---- PARÁMETROS ----
+ruta_excel <- "C:/MASTER DATA SCIENCE/5 semestre/TFM/DATOS/Verde/03_SuperficieZonasVerdesDistritosCalles_2021.xlsx"
+anio_verde <- 2021
+umbral_parque_grande <- 15000
+
+# ---- 1️⃣ Leer hoja correcta ----
+raw <- read_excel(
+  ruta_excel,
+  sheet = "ZV Y PARQUES DTO MÁS SUPERFICIE"
+)
+
+# ---- 2️⃣ Seleccionar columnas relevantes ----
+verde_base <- raw %>%
+  select(
+    distrito = DISTRITO,
+    barrio   = BARRIO,
+    parque   = `PARQUES Y ZONAS VERDES DE DISTRITO CON MAYOR SUPERFICIE`,
+    sup_m2   = `Superficie (m2)`
+  )
+
+# ---- 3️⃣ Limpieza básica ----
+verde_base <- verde_base %>%
+  mutate(
+    distrito = str_trim(distrito),
+    barrio   = str_trim(barrio),
+    sup_m2 = to_numeric_safe(sup_m2)
+  ) %>%
+  filter(!is.na(barrio), !is.na(sup_m2))
+
+# ---- 4️⃣ Agregación por barrio ----
+verde_barrio <- verde_base %>%
+  group_by(distrito, barrio) %>%
+  summarise(
+    sup_verde_total = sum(sup_m2, na.rm = TRUE),
+    sup_verde_media = mean(sup_m2, na.rm = TRUE),
+    n_parques_grandes = sum(sup_m2 >= umbral_parque_grande),
+    .groups = "drop"
+  )
+
+# ---- 5️⃣ Pasar a formato panel tidy ----
+verde_2021_long <- verde_barrio %>%
+  mutate(anio = anio_verde, bloque = "verde") %>%
+  pivot_longer(
+    cols = c(sup_verde_total, sup_verde_media, n_parques_grandes),
+    names_to = "indicador",
+    values_to = "valor"
+  ) %>%
+  mutate(
+    indicador = recode(
+      indicador,
+      sup_verde_total   = "Superficie verde total (m2)",
+      sup_verde_media   = "Superficie verde media por parque (m2)",
+      n_parques_grandes = "Número de parques grandes (>15.000 m2)"
+    )
+  ) %>%
+  select(anio, distrito, barrio, bloque, indicador, valor)
+
+# ---- 6️⃣ Comprobaciones rápidas ----
+head(verde_2021_long)
+unique(verde_2021_long$indicador)
+length(unique(verde_2021_long$barrio))
+summary(verde_2021_long$valor)
+
+
+```
+
+```{r}
+
+# =====================================
+# BLOQUE VERDE – EXCEL 2022
+# =====================================
+
+library(readxl)
+library(dplyr)
+library(stringr)
+library(tidyr)
+
+# ---- PARÁMETROS ----
+ruta_excel <- "C:/MASTER DATA SCIENCE/5 semestre/TFM/DATOS/Verde/03_SuperficieZonasVerdesDistritosCalles_2022.xlsx"
+anio_verde <- 2022
+umbral_parque_grande <- 15000
+
+# ---- 1️⃣ Leer hoja correcta ----
+raw <- read_excel(
+  ruta_excel,
+  sheet = "ZV Y PARQUES DTO MAYOR ÁREA"
+)
+
+# ---- 2️⃣ Seleccionar columnas relevantes ----
+verde_base <- raw %>%
+  select(
+    distrito = DISTRITO,
+    barrio   = BARRIO,
+    parque   = `PARQUES Y ZONAS VERDES DE DISTRITO CON MAYOR SUPERFICIE`,
+    sup_m2   = `Superficie (m2)`
+  )
+
+# ---- 3️⃣ Limpieza básica ----
+verde_base <- verde_base %>%
+  mutate(
+    distrito = str_trim(distrito),
+    barrio   = str_trim(barrio),
+    sup_m2 = to_numeric_safe(sup_m2)
+  ) %>%
+  filter(!is.na(barrio), !is.na(sup_m2))
+
+# ---- 4️⃣ Agregación por barrio ----
+verde_barrio <- verde_base %>%
+  group_by(distrito, barrio) %>%
+  summarise(
+    sup_verde_total = sum(sup_m2, na.rm = TRUE),
+    sup_verde_media = mean(sup_m2, na.rm = TRUE),
+    n_parques_grandes = sum(sup_m2 >= umbral_parque_grande),
+    .groups = "drop"
+  )
+
+# ---- 5️⃣ Pasar a formato panel tidy ----
+verde_2022_long <- verde_barrio %>%
+  mutate(anio = anio_verde, bloque = "verde") %>%
+  pivot_longer(
+    cols = c(sup_verde_total, sup_verde_media, n_parques_grandes),
+    names_to = "indicador",
+    values_to = "valor"
+  ) %>%
+  mutate(
+    indicador = recode(
+      indicador,
+      sup_verde_total   = "Superficie verde total (m2)",
+      sup_verde_media   = "Superficie verde media por parque (m2)",
+      n_parques_grandes = "Número de parques grandes (>15.000 m2)"
+    )
+  ) %>%
+  select(anio, distrito, barrio, bloque, indicador, valor)
+
+# ---- 6️⃣ Comprobaciones rápidas ----
+head(verde_2022_long)
+unique(verde_2022_long$indicador)
+length(unique(verde_2022_long$barrio))
+summary(verde_2022_long$valor)
+
+```
+
+
+```{r}
+# =====================================
+# BLOQUE VERDE – EXCEL 2023
+# =====================================
+
+library(readxl)
+library(dplyr)
+library(stringr)
+library(tidyr)
+
+# ---- PARÁMETROS ----
+ruta_excel <- "C:/MASTER DATA SCIENCE/5 semestre/TFM/DATOS/Verde/03_SuperficieZonasVerdesDistritosCalles_2023.xlsx"
+anio_verde <- 2023
+umbral_parque_grande <- 15000
+
+# ---- 1️⃣ Leer hoja correcta ----
+raw <- read_excel(
+  ruta_excel,
+  sheet = "ZV Y PARQUES DTO MAYOR ÁREA"
+)
+
+# ---- 2️⃣ Seleccionar columnas relevantes ----
+verde_base <- raw %>%
+  select(
+    distrito = DISTRITO,
+    barrio   = BARRIO,
+    parque   = `PARQUES Y ZONAS VERDES DE DISTRITO CON MAYOR SUPERFICIE`,
+    sup_m2   = `SUPERFICIE (m2)`
+  )
+
+# ---- 3️⃣ Limpieza básica ----
+verde_base <- verde_base %>%
+  mutate(
+    distrito = str_trim(distrito),
+    barrio   = str_trim(barrio),
+    sup_m2 = to_numeric_safe(sup_m2)
+  ) %>%
+  filter(!is.na(barrio), !is.na(sup_m2))
+
+# ---- 4️⃣ Agregación por barrio ----
+verde_barrio <- verde_base %>%
+  group_by(distrito, barrio) %>%
+  summarise(
+    sup_verde_total = sum(sup_m2, na.rm = TRUE),
+    sup_verde_media = mean(sup_m2, na.rm = TRUE),
+    n_parques_grandes = sum(sup_m2 >= umbral_parque_grande),
+    .groups = "drop"
+  )
+
+# ---- 5️⃣ Pasar a formato panel tidy ----
+verde_2023_long <- verde_barrio %>%
+  mutate(anio = anio_verde, bloque = "verde") %>%
+  pivot_longer(
+    cols = c(sup_verde_total, sup_verde_media, n_parques_grandes),
+    names_to = "indicador",
+    values_to = "valor"
+  ) %>%
+  mutate(
+    indicador = recode(
+      indicador,
+      sup_verde_total   = "Superficie verde total (m2)",
+      sup_verde_media   = "Superficie verde media por parque (m2)",
+      n_parques_grandes = "Número de parques grandes (>15.000 m2)"
+    )
+  ) %>%
+  select(anio, distrito, barrio, bloque, indicador, valor)
+
+# ---- 6️⃣ Comprobaciones rápidas ----
+head(verde_2023_long)
+unique(verde_2023_long$indicador)
+length(unique(verde_2023_long$barrio))
+summary(verde_2023_long$valor)
+
+```
+
+
+```{r}
+
+# =====================================
+# BLOQUE VERDE – EXCEL 2024
+# =====================================
+
+library(readxl)
+library(dplyr)
+library(stringr)
+library(tidyr)
+
+# ---- PARÁMETROS ----
+ruta_excel <- "C:/MASTER DATA SCIENCE/5 semestre/TFM/DATOS/Verde/03_SuperficieZonasVerdesDistritosCalles_2024.xlsx"
+anio_verde <- 2024
+umbral_parque_grande <- 15000
+
+# ---- 1️⃣ Leer hoja correcta ----
+raw <- read_excel(
+  ruta_excel,
+  sheet = "ZV Y PARQUES DTO MAYOR ÁREA"
+)
+
+# ---- 2️⃣ Seleccionar columnas relevantes ----
+verde_base <- raw %>%
+  select(
+    distrito = DISTRITO,
+    barrio   = BARRIO,
+    parque   = `PARQUES Y ZONAS VERDES DE DISTRITO CON MAYOR SUPERFICIE`,
+    sup_m2   = `SUP (m2)`
+  )
+
+# ---- 3️⃣ Limpieza básica ----
+verde_base <- verde_base %>%
+  mutate(
+    distrito = str_trim(distrito),
+    barrio   = str_trim(barrio),
+    sup_m2 = to_numeric_safe(sup_m2)
+  ) %>%
+  filter(!is.na(barrio), !is.na(sup_m2))
+
+# ---- 4️⃣ Agregación por barrio ----
+verde_barrio <- verde_base %>%
+  group_by(distrito, barrio) %>%
+  summarise(
+    sup_verde_total = sum(sup_m2, na.rm = TRUE),
+    sup_verde_media = mean(sup_m2, na.rm = TRUE),
+    n_parques_grandes = sum(sup_m2 >= umbral_parque_grande),
+    .groups = "drop"
+  )
+
+# ---- 5️⃣ Pasar a formato panel tidy ----
+verde_2024_long <- verde_barrio %>%
+  mutate(anio = anio_verde, bloque = "verde") %>%
+  pivot_longer(
+    cols = c(sup_verde_total, sup_verde_media, n_parques_grandes),
+    names_to = "indicador",
+    values_to = "valor"
+  ) %>%
+  mutate(
+    indicador = recode(
+      indicador,
+      sup_verde_total   = "Superficie verde total (m2)",
+      sup_verde_media   = "Superficie verde media por parque (m2)",
+      n_parques_grandes = "Número de parques grandes (>15.000 m2)"
+    )
+  ) %>%
+  select(anio, distrito, barrio, bloque, indicador, valor)
+
+# ---- 6️⃣ Comprobaciones rápidas ----
+head(verde_2024_long)
+unique(verde_2024_long$indicador)
+length(unique(verde_2024_long$barrio))
+summary(verde_2024_long$valor)
+
+```
+
+
+```{r}
+
+verde_panel <- dplyr::bind_rows(
+  verde_2019_long,
+  verde_2020_long,
+  verde_2021_long,
+  verde_2022_long,
+  verde_2023_long,
+  verde_2024_long
+)
+
+# Estructura
+str(verde_panel)
+
+# Columnas exactas
+stopifnot(
+  identical(
+    colnames(verde_panel),
+    c("anio", "distrito", "barrio", "bloque", "indicador", "valor")
+  )
+)
+
+# Bloque correcto
+unique(verde_panel$bloque)
+
+# Años disponibles
+sort(unique(verde_panel$anio))
+
+# Indicadores verdes
+unique(verde_panel$indicador)
+
+# Valores numéricos
+stopifnot(is.numeric(verde_panel$valor))
+
+nrow(verde_panel)
+length(unique(verde_panel$barrio))
+length(unique(verde_panel$indicador))
+
+
+```
+
+
+```{r}
+write.csv(
+  datos_panel,
+  "C:\\MASTER DATA SCIENCE\\5 semestre\\TFM\\DATOS\\panel_socioeconomico_2018_2024.csv",
+  row.names = FALSE,
+  fileEncoding = "UTF-8"
+)
+
+write.csv(
+  vivienda_panel,
+  "C:\\MASTER DATA SCIENCE\\5 semestre\\TFM\\DATOS\\panel_vivienda_2018_2024.csv",
+  row.names = FALSE,
+  fileEncoding = "UTF-8"
+)
+
+write.csv(
+  verde_panel,
+  "C:\\MASTER DATA SCIENCE\\5 semestre\\TFM\\DATOS\\panel_verde_2018_2024.csv",
+  row.names = FALSE,
+  fileEncoding = "UTF-8"
+)
+
+```
+
+
+
+# BLOQUE ESPACIAL
+
+```{r}
+plot(st_geometry(barrios_sf), col = NA, border = "grey")
+plot(st_geometry(madrid_rio_sf), col = "lightgreen", add = TRUE)
+
+nrow(madrid_rio_sf)
+# Tipo de geometría
+st_geometry_type(madrid_rio_sf)
+
+# Bounding box
+st_bbox(madrid_rio_sf)
+
+# CRS
+st_crs(madrid_rio_sf)
+
+```
+```{r}
+library(sf)
+library(dplyr)
+
+# ---- 1️⃣ Cargar barrios ----
+barrios_sf <- st_read(
+  "C:/MASTER DATA SCIENCE/5 semestre/TFM/DATOS/Limites administrativos por Barrios.json",
+  quiet = TRUE
+)
+
+# Asignar CRS correcto (GeoJSON administrativo)
+barrios_sf <- st_set_crs(barrios_sf, 4326)
+
+# Pasar a metros
+barrios_sf <- st_transform(barrios_sf, 25830)
+
+# ---- 2️⃣ Cargar Madrid Río ----
+madrid_rio_sf <- st_read(
+  "C:/MASTER DATA SCIENCE/5 semestre/TFM/DATOS/Madrid_rio.geojson",
+  quiet = TRUE
+)
+
+# Geojson.io -> WGS84
+madrid_rio_sf <- st_set_crs(madrid_rio_sf, 4326)
+
+# Pasar a metros
+madrid_rio_sf <- st_transform(madrid_rio_sf, 25830)
+
+
+# ---- 3️⃣ Centroides de barrio ----
+barrios_centroides <- barrios_sf %>%
+  mutate(centroide = st_centroid(geometry)) %>%
+  st_set_geometry("centroide")
+
+# ---- 4️⃣ Distancia mínima a Madrid Río ----
+barrios_distancia_rio <- barrios_centroides %>%
+  mutate(
+    distancia_madrid_rio_m = as.numeric(
+      st_distance(centroide, madrid_rio_sf) %>% 
+        apply(1, min)
+    )
+  ) %>%
+  st_drop_geometry()
+
+# ---- 5️⃣ Dataframe final compatible con paneles ----
+distancia_madrid_rio <- barrios_distancia_rio %>%
+  transmute(
+    distrito = toupper(NOMDIS),
+    barrio   = toupper(BARRIO_MAY),
+    indicador = "Distancia a Madrid Río (m)",
+    valor = distancia_madrid_rio_m,
+    bloque = "verde"
+  )
+
+# ---- 6️⃣ Comprobación final ----
+summary(distancia_madrid_rio$valor)
+
+
+```
+
+```{r}
+names(barrios_distancia_rio)
+unique(barrios_distancia_rio$NOMDIS)
+head(unique(barrios_distancia_rio$BARRIO_MAY), 20)
+
+```
+
+```{r}
+distancia_madrid_rio_panel <- expand.grid(
+  anio = 2018:2024,
+  idx = seq_len(nrow(distancia_madrid_rio))
+) %>%
+  left_join(
+    distancia_madrid_rio %>% mutate(idx = row_number()),
+    by = "idx"
+  ) %>%
+  select(-idx)
+
+unique(distancia_madrid_rio_panel$anio)
+nrow(distancia_madrid_rio_panel)
+
+```
+
+```{r}
+verde_panel <- dplyr::bind_rows(
+  verde_panel,
+  distancia_madrid_rio_panel
+)
+
+write.csv(
+  verde_panel,
+  "C:/MASTER DATA SCIENCE/5 semestre/TFM/DATOS/panel_verde_2019_2024.csv",
+  row.names = FALSE,
+  fileEncoding = "UTF-8"
+)
+```
+
+
+
+# BLOQUE FINAL: Limpieza y tratamiento para terminar con un dataset ancho.
+```{r}
+############################################################
+# BLOQUE FINAL · LIMPIEZA Y TRATAMIENTO DEL PANEL LARGO
+############################################################
+
+library(dplyr)
+library(stringr)
+library(stringi)
+library(sf)
+library(tidyr)
+
+#-----------------------------------------------------------
+# 1. Funciones auxiliares de normalización
+#-----------------------------------------------------------
+
+normalizar_texto <- function(x) {
+  x %>%
+    stringi::stri_trans_general("Latin-ASCII") %>%
+    toupper() %>%
+    str_trim()
+}
+
+limpiar_barrio <- function(x) {
+  x %>%
+    stringi::stri_trans_general("Latin-ASCII") %>%
+    toupper() %>%
+    str_replace_all("^\\s*\\d+\\s*[\\.-]?\\s*", "") %>%
+    str_replace_all("\\s+", " ") %>%
+    str_trim()
+}
+
+#-----------------------------------------------------------
+# 2. Normalización de paneles (incluye BLOQUE)
+#-----------------------------------------------------------
+
+socioeconomico_panel <- socioeconomico_panel %>%
+  mutate(
+    barrio   = limpiar_barrio(barrio),
+    distrito = normalizar_texto(distrito),
+    anio     = as.integer(anio),
+    bloque   = "socioeconomico"
+  )
+
+vivienda_panel <- vivienda_panel %>%
+  mutate(
+    barrio   = limpiar_barrio(barrio),
+    distrito = normalizar_texto(distrito),
+    anio     = as.integer(anio)
+  )
+
+verde_panel <- verde_panel %>%
+  mutate(
+    barrio   = limpiar_barrio(barrio),
+    distrito = normalizar_texto(distrito),
+    anio     = as.integer(anio)
+  )
+
+#-----------------------------------------------------------
+# 3. Reordenar columnas (orden definitivo)
+#-----------------------------------------------------------
+
+socioeconomico_panel <- socioeconomico_panel %>%
+  select(anio, distrito, barrio, bloque, indicador, valor)
+
+vivienda_panel <- vivienda_panel %>%
+  select(anio, distrito, barrio, bloque, indicador, valor)
+
+verde_panel <- verde_panel %>%
+  select(anio, distrito, barrio, bloque, indicador, valor)
+
+#-----------------------------------------------------------
+# 4. Unión de paneles largos
+#-----------------------------------------------------------
+
+stopifnot(
+  identical(colnames(socioeconomico_panel), colnames(vivienda_panel)),
+  identical(colnames(socioeconomico_panel), colnames(verde_panel))
+)
+
+panel_largo <- bind_rows(
+  socioeconomico_panel,
+  vivienda_panel,
+  verde_panel
+)
+
+#-----------------------------------------------------------
+# 5. Normalización de barrios contra cartografía oficial
+#-----------------------------------------------------------
+
+barrios_oficiales <- barrios_sf %>%
+  st_drop_geometry() %>%
+  transmute(
+    barrio = limpiar_barrio(BARRIO_MAY)
+  ) %>%
+  distinct()
+
+mapa_barrios <- tibble::tribble(
+  ~original, ~canonico,
+  "CONCEPCION", "LA CONCEPCION",
+  "DEL PILAR", "PILAR",
+  "EL PILAR", "PILAR",
+  "LA CHOPERA", "CHOPERA",
+  "LA ESTRELLA", "ESTRELLA",
+  "LAS ACACIAS", "ACACIAS",
+  "LAS AGUILAS", "AGUILAS",
+  "LAS DELICIAS", "DELICIAS",
+  "LOS ANGELES", "ANGELES",
+  "PALOMERAS BAJAS", "PALOMENAS BAJAS",
+  "PALOS DE MOGUER", "PALOS DE LA FRONTERA",
+  "PENA GRANDE", "PENAGRANDE",
+  "VALDERRIBAS", "VALDERRIVAS"
+)
+
+panel_largo_pre <- panel_largo
+
+panel_largo <- panel_largo %>%
+  left_join(mapa_barrios, by = c("barrio" = "original")) %>%
+  mutate(barrio = coalesce(canonico, barrio)) %>%
+  select(-canonico) %>%
+  semi_join(barrios_oficiales, by = "barrio")
+
+#-----------------------------------------------------------
+# 6. Normalización de indicadores (clave para formato ancho)
+#-----------------------------------------------------------
+
+panel_largo <- panel_largo %>%
+  mutate(
+    indicador_norm = indicador %>%
+      stringi::stri_trans_general("Latin-ASCII") %>%
+      toupper() %>%
+      str_replace_all("[^A-Z0-9 ]", "") %>%
+      str_squish()
+  )
+
+#-----------------------------------------------------------
+# 7. Función de auditoría rápida
+#-----------------------------------------------------------
+
+auditar_variable <- function(df, indicador_norm_nombre) {
+  df %>%
+    filter(indicador_norm == indicador_norm_nombre) %>%
+    summarise(
+      n = n(),
+      na = sum(is.na(valor)),
+      pct_na = round(100 * na / n, 2),
+      anios = n_distinct(anio),
+      barrios = n_distinct(barrio)
+    )
+}
+
+
+auditar_variable(panel_largo, "EDAD MEDIA DE LA POBLACION")
+auditar_variable(panel_largo, "SUPERFICIE VERDE TOTAL M2")
+
+auditar_variable(panel_largo, "PRECIO MEDIO DE LA VIVIENDA EUROSM2")
+
+auditar_variable(panel_largo, "PARO REGISTRADO")
+
+auditar_variable(panel_largo, "RENTA NETA MEDIA ANUAL DE LOS HOGARES")
+
+auditar_variable(panel_largo, "PROPORCION DE INMIGRANTES")
+auditar_variable(panel_largo, "TAMANO MEDIO DEL HOGAR")
+auditar_variable(panel_largo, "NUMERO DE PARQUES GRANDES 15000 M2")
+auditar_variable(panel_largo, "POBLACION EN ETAPAS EDUCATIVAS")
+############################################################
+# PANEL LARGO FINAL · ORDENADO Y LISTO PARA FORMATO ANCHO
+############################################################
+
+```
+##Transformacion a variables conitnuas las variables categoricas
+```{r}
+
+############################################################
+# SUSTITUCIÓN DE VARIABLES CATEGÓRICAS POR CONTINUAS
+# (bloque vivienda · ADAPTADO A INDICADORES REALES)
+############################################################
+
+library(dplyr)
+library(stringr)
+library(stringi)
+
+#-----------------------------------------------------------
+# 1. SUPERFICIE MEDIA ESTIMADA DE LA VIVIENDA
+#-----------------------------------------------------------
+
+valores_superficie <- tibble::tribble(
+  ~tramo,                ~m2_rep,
+  "MENOS DE 40 M2",        30,
+  "40 A 60 M2",            50,
+  "60 A 80 M2",            70,
+  "80 A 100 M2",           90,
+  "MAS DE 100 M2",        120
+)
+
+superficie_largo <- panel_largo %>%
+  filter(
+    bloque == "vivienda",
+    str_detect(indicador_norm, "^SUPERFICIE MEDIA")
+  ) %>%
+  mutate(
+    tramo = indicador_norm %>%
+      str_replace("^SUPERFICIE MEDIA\\s*", "") %>%
+      str_trim()
+  )
+
+# Control rápido
+unique(superficie_largo$tramo)
+
+superficie_media <- superficie_largo %>%
+  left_join(valores_superficie, by = "tramo") %>%
+  group_by(anio, distrito, barrio) %>%
+  summarise(
+    valor =
+      sum(valor * m2_rep, na.rm = TRUE) /
+      sum(valor, na.rm = TRUE),
+    .groups = "drop"
+  ) %>%
+  mutate(
+    bloque = "vivienda",
+    indicador = "Superficie media estimada de la vivienda (m2)"
+  ) %>%
+  select(anio, distrito, barrio, bloque, indicador, valor)
+
+#-----------------------------------------------------------
+# 2. ANTIGÜEDAD MEDIA ESTIMADA DE LA VIVIENDA
+#-----------------------------------------------------------
+
+valores_posesion <- tibble::tribble(
+  ~tramo,               ~anios_rep,
+  "02 ANOS",               1,
+  "25 ANOS",               3.5,
+  "510 ANOS",              7.5,
+  "10 Y MAS ANOS",        15
+)
+
+posesion_largo <- panel_largo %>%
+  filter(
+    bloque == "vivienda",
+    str_detect(indicador_norm, "^ANOS DE POSESION")
+  ) %>%
+  mutate(
+    tramo = indicador_norm %>%
+      str_replace("^ANOS DE POSESION\\s*", "") %>%
+      str_trim()
+  )
+
+# Control rápido
+unique(posesion_largo$tramo)
+
+posesion_media <- posesion_largo %>%
+  left_join(valores_posesion, by = "tramo") %>%
+  group_by(anio, distrito, barrio) %>%
+  summarise(
+    valor =
+      sum(valor * anios_rep, na.rm = TRUE) /
+      sum(valor, na.rm = TRUE),
+    .groups = "drop"
+  ) %>%
+  mutate(
+    bloque = "vivienda",
+    indicador = "Antigüedad media estimada de la vivienda (años)"
+  ) %>%
+  select(anio, distrito, barrio, bloque, indicador, valor)
+
+#-----------------------------------------------------------
+# 3. CONSTRUCCIÓN DEL PANEL LARGO ANALÍTICO
+#-----------------------------------------------------------
+
+panel_largo_analitico <- panel_largo %>%
+  filter(
+    bloque != "vivienda" |
+      (
+        !str_detect(indicador_norm, "^SUPERFICIE MEDIA") &
+        !str_detect(indicador_norm, "^ANOS DE POSESION")
+      )
+  ) %>%
+  bind_rows(
+    superficie_media,
+    posesion_media
+  )
+
+#-----------------------------------------------------------
+# 4. CHEQUEOS FINALES
+#-----------------------------------------------------------
+
+panel_largo_analitico %>%
+  filter(bloque == "vivienda") %>%
+  count(indicador, sort = TRUE)
+
+panel_largo_analitico %>%
+  filter(
+    indicador %in% c(
+      "Superficie media estimada de la vivienda (m2)",
+      "Antigüedad media estimada de la vivienda (años)"
+    )
+  ) %>%
+  group_by(indicador) %>%
+  summarise(
+    min = min(valor, na.rm = TRUE),
+    q1 = quantile(valor, 0.25, na.rm = TRUE),
+    median = median(valor, na.rm = TRUE),
+    mean = mean(valor, na.rm = TRUE),
+    q3 = quantile(valor, 0.75, na.rm = TRUE),
+    max = max(valor, na.rm = TRUE),
+    na = sum(is.na(valor)),
+    .groups = "drop"
+  )
+
+```
+# Ultima comprobacion datos
+```{r}
+
+panel_largo %>%
+  filter(indicador_norm == "EDAD MEDIA DE LA POBLACION") %>%
+  summarise(
+    n_total = n(),
+    na = sum(is.na(valor)),
+    pct_na = round(100 * na / n_total, 2),
+    anios = n_distinct(anio),
+    barrios = n_distinct(barrio)
+  )
+
+panel_largo_analitico %>%
+  filter(indicador_norm == "EDAD MEDIA DE LA POBLACION") %>%
+  summarise(
+    n_total = n(),
+    na = sum(is.na(valor)),
+    pct_na = round(100 * na / n_total, 2),
+    anios = n_distinct(anio),
+    barrios = n_distinct(barrio)
+  )
+
+panel_largo_analitico %>%
+  filter(indicador_norm == "EDAD MEDIA DE LA POBLACION") %>%
+  arrange(anio, distrito, barrio)
+
+
+panel_largo %>%
+  filter(indicador_norm == "BACHILLER ELEMENTAL GRADUADO ESCOLAR ESO FORMACION PROFESIONAL 1 GRADO" ) %>%
+  summarise(
+    n_total = n(),
+    na = sum(is.na(valor)),
+    pct_na = round(100 * na / n_total, 2),
+    anios = n_distinct(anio),
+    barrios = n_distinct(barrio)
+  )
+
+panel_largo_analitico %>%
+  filter(indicador_norm == "BACHILLER ELEMENTAL GRADUADO ESCOLAR ESO FORMACION PROFESIONAL 1 GRADO" ) %>%
+  summarise(
+    n_total = n(),
+    na = sum(is.na(valor)),
+    pct_na = round(100 * na / n_total, 2),
+    anios = n_distinct(anio),
+    barrios = n_distinct(barrio)
+  )
+
+panel_largo_analitico %>%
+  filter(indicador_norm == "BACHILLER ELEMENTAL GRADUADO ESCOLAR ESO FORMACION PROFESIONAL 1 GRADO" ) %>%
+  arrange(anio, distrito, barrio)
+```
+```{r}
+
+sort(unique(panel_largo$barrio))
+panel_largo %>%
+  count(barrio, sort = TRUE)
+sort(unique(panel_largo$indicador))
+panel_largo %>%
+  count(indicador, sort = TRUE)
+panel_largo %>%
+  distinct(indicador, indicador_norm) %>%
+  arrange(indicador_norm, indicador)
+panel_largo %>%
+  count(indicador_norm, sort = TRUE)
+
+```
+```{r}
+#error de formato en filas con distrito a null
+
+panel_largo_analitico <- panel_largo_analitico %>%
+  group_by(barrio, anio) %>%
+  mutate(
+    distrito = ifelse(
+      is.na(distrito) | distrito == "",
+      first(na.omit(distrito)),
+      distrito
+    )
+  ) %>%
+  ungroup()
+
+```
+# PASAR A FORMATO ANCHO
+
+```{r}
+
+############################################################
+# PASO A FORMATO ANCHO (PANEL FINAL DE MODELIZACIÓN)
+############################################################
+
+library(dplyr)
+library(tidyr)
+
+#-----------------------------------------------------------
+# 1. Comprobación de unicidad de la clave
+#-----------------------------------------------------------
+
+# Debe haber como mucho un valor por
+# anio + distrito + barrio + indicador_norm
+panel_largo_analitico %>%
+  count(anio, distrito, barrio, indicador_norm) %>%
+  filter(n > 1)
+# → si no devuelve filas, estamos bien
+
+#-----------------------------------------------------------
+# 2. Pivotar a formato ancho
+#-----------------------------------------------------------
+
+panel_ancho <- panel_largo_analitico %>%
+  select(anio, distrito, barrio, indicador_norm, valor) %>%
+  pivot_wider(
+    names_from  = indicador_norm,
+    values_from = valor
+  )
+
+#-----------------------------------------------------------
+# 3. Orden final de columnas
+#-----------------------------------------------------------
+
+panel_ancho <- panel_ancho %>%
+  arrange(anio, distrito, barrio)
+
+#-----------------------------------------------------------
+# 4. Chequeos rápidos
+#-----------------------------------------------------------
+
+dim(panel_ancho)
+
+# Número de barrios por año
+panel_ancho %>%
+  count(anio)
+
+# NA por variable (muy importante)
+panel_ancho %>%
+  summarise(across(where(is.numeric), ~ sum(is.na(.)))) %>%
+  pivot_longer(
+    everything(),
+    names_to = "variable",
+    values_to = "na"
+  ) %>%
+  arrange(desc(na))
+
+```
+
+```{r}
+library(dplyr)
+library(tidyr)
+
+
+library(dplyr)
+library(stringr)
+library(readr)
+
+# 1. Eliminar columna "NA" si existe
+panel_ancho <- panel_ancho %>%
+  select(-any_of("NA"))
+
+# 2. Convertir TODAS las variables excepto identificadores a numéricas
+panel_ancho <- panel_ancho %>%
+  mutate(
+    across(
+      -c(anio, distrito, barrio),
+      ~ parse_number(as.character(.))
+    )
+  )
+
+# 3. Comprobación de tipos
+str(panel_ancho)
+
+
+```
+# EDA POR VARIABLE
+```{r}
+
+panel_ancho$`BACHILLER ELEMENTAL GRADUADO ESCOLAR ESO FORMACION PROFESIONAL 1 GRADO`
+
+panel_ancho %>%
+  summarise(across(
+    where(is.numeric),
+    list(
+      na = ~ sum(is.na(.)),
+      min = ~ min(., na.rm = TRUE),
+      q1 = ~ quantile(., 0.25, na.rm = TRUE),
+      median = ~ median(., na.rm = TRUE),
+      mean = ~ mean(., na.rm = TRUE),
+      q3 = ~ quantile(., 0.75, na.rm = TRUE),
+      max = ~ max(., na.rm = TRUE)
+      
+    )
+  )) %>%
+  tidyr::pivot_longer(
+    everything(),
+    names_to = c("variable", "stat"),
+    names_sep = "_"
+  ) %>%
+  tidyr::pivot_wider(
+    names_from = stat,
+    values_from = value
+  ) %>%
+  arrange(variable)
+```
+
+
+##TRATO LOS NAs de las variables continuas
+```{r}
+library(dplyr)
+
+vars_invariantes <- c(
+  "DISTANCIA A MADRID RIO M",
+  "NUMERO DE PARQUES GRANDES 15000 M2"
+)
+
+panel_ancho <- panel_ancho %>%
+  group_by(distrito, barrio) %>%
+  mutate(
+    across(
+      all_of(vars_invariantes),
+      ~ ifelse(is.na(.), first(na.omit(.)), .)
+    )
+  ) %>%
+  ungroup()
+
+
+```
+
+
+
+# HOMEGEINIZACION NOMBRES BARRIOS: 
+```{r}
+library(dplyr)
+library(sf)
+library(tibble)
+panel_ancho$`BACHILLER ELEMENTAL GRADUADO ESCOLAR ESO FORMACION PROFESIONAL 1 GRADO`
+mapa_barrios <- tribble(
+  ~panel, ~oficial,
+  "OPANEL",            "OPAÑEL",
+  "NUEVA ESPANA",      "NUEVA ESPAÑA",
+  "NINO JESUS",        "NIÑO JESÚS",
+  "ARGUELLES",         "ARGÜELLES",
+  "PENAGRANDE",        "PEÑAGRANDE",
+  "EL CANAVERAL",      "EL CAÑAVERAL",
+  "ENTREVIAS",         "ENTREVÍAS",
+  "PALOMENAS BAJAS",   "PALOMERAS BAJAS"
+)
+
+panel_ancho <- panel_ancho %>%
+  left_join(
+    mapa_barrios,
+    by = c("barrio" = "panel")
+  ) %>%
+  mutate(
+    barrio = coalesce(oficial, barrio)
+  ) %>%
+  select(-oficial)
+
+
+barrios_sin_datos <- barrios_sf %>%
+  st_drop_geometry() %>%
+  distinct(BARRIO_MAY) %>%
+  anti_join(
+    panel_ancho %>% distinct(barrio),
+    by = c("BARRIO_MAY" = "barrio")
+  )
+
+barrios_sin_datos
+panel_ancho$`BACHILLER ELEMENTAL GRADUADO ESCOLAR ESO FORMACION PROFESIONAL 1 GRADO`
+
+```
+
+#TRATAMIENTO VALORES PERDIDOS
+
+
+
+```{r}
+
+panel_ancho <- panel_ancho %>%
+  group_by(barrio) %>%
+  mutate(
+    distrito = ifelse(
+      is.na(distrito) | distrito == "",
+      first(na.omit(distrito)),
+      distrito
+    )
+  ) %>%
+  ungroup() %>%
+  filter(!is.na(distrito) & distrito != "")
+
+
+panel_ancho$`BACHILLER ELEMENTAL GRADUADO ESCOLAR ESO FORMACION PROFESIONAL 1 GRADO`
+
+colnames(panel_ancho)
+contar_datos_por_anio <- function(df, variables) {
+
+  df %>%
+    select(anio, all_of(variables)) %>%
+    pivot_longer(
+      cols = -anio,
+      names_to = "variable",
+      values_to = "valor"
+    ) %>%
+    group_by(variable, anio) %>%
+    summarise(
+      n_total = n(),
+      n_con_dato = sum(!is.na(valor)),
+      pct_con_dato = round(100 * n_con_dato / n_total, 1),
+      .groups = "drop"
+    ) %>%
+    arrange(variable, anio)
+}
+
+vars_estudio <- c(
+"EDAD MEDIA DE LA POBLACION" ,                                                                                                          
+ "PROPORCION DE INMIGRANTES",                                                                                                            
+ "TAMANO MEDIO DEL HOGAR",                                                                                                               
+ "HOGARES CON UNA MUJER SOLA MAYOR DE 65 ANOS",                                                                                          
+ "HOGARES CON UN HOMBRE SOLO MAYOR DE 65 ANOS",                                                                                          
+ "TASA BRUTA DE NATALIDAD",                                                                                                              
+ "RENTA NETA MEDIA ANUAL DE LOS HOGARES",                                                                                                
+ "RENTA DISPONIBLE BRUTA PER CAPITA" ,                                                                                                   
+ "PARO REGISTRADO",                                                                                                                      
+ "POBLACION EN ETAPAS EDUCATIVAS",  
+ "BACHILLER ELEMENTAL GRADUADO ESCOLAR ESO FORMACION PROFESIONAL 1 GRADO",
+ "TITULADOS MEDIOS DIPLOMADOS ARQUITECTO O INGENIERO TECNICO",                                                                           
+ "ESTUDIOS SUPERIORES LICENCIADO ARQUITECTO O INGENIERO SUPERIOR ESTUDIOS SUPERIORES NO UNIVERSITARIOS DOCTORADO ESTUDIOS POSTGRADUADOS",
+ "PRECIO MEDIO DE LA VIVIENDA EUROSM2" ,                                                                                                 
+ "CREDITO HIPOTECARIO VIVIENDAS",                                                                                                        
+ "TRANSACCIONES DE VIVIENDA TOTAL",                                                                                                      
+ "SUPERFICIE VERDE TOTAL M2",                                                                                                            
+ "SUPERFICIE VERDE MEDIA POR PARQUE M2"  ,                                                                                               
+ "NUMERO DE PARQUES GRANDES 15000 M2",                                                                                                   
+ "DISTANCIA A MADRID RIO M"       
+)
+
+
+cobertura_panel_ancho <- contar_datos_por_anio(
+  panel_ancho,
+  vars_estudio
+)
+
+cobertura_panel_ancho
+
+
+head(panel_ancho)
+
+```
+
+# EDA VISUAL
+```{r}
+panel_ancho %>%
+  select(anio, barrio,
+         `PRECIO MEDIO DE LA VIVIENDA EUROSM2`,
+         `RENTA NETA MEDIA ANUAL DE LOS HOGARES`,
+         `PARO REGISTRADO`,
+         `PROPORCION DE INMIGRANTES`) %>%
+  pivot_longer(
+    -c(anio, barrio),
+    names_to = "variable",
+    values_to = "valor"
+  ) %>%
+  ggplot(aes(y = valor)) +
+  geom_boxplot() +
+  facet_wrap(~ variable, scales = "free") +
+  theme_minimal() +
+  labs(
+    title = "Distribución de los indicadores (escalas independientes)",
+    y = NULL,
+    x = NULL
+  )
+
+```
+
+```{r}
+panel_ancho %>%
+  group_by(anio) %>%
+  summarise(
+    precio = mean(`PRECIO MEDIO DE LA VIVIENDA EUROSM2`, na.rm = TRUE),
+    renta  = mean(`RENTA NETA MEDIA ANUAL DE LOS HOGARES`, na.rm = TRUE)
+  ) %>%
+  pivot_longer(
+    -anio,
+    names_to = "variable",
+    values_to = "valor"
+  ) %>%
+  ggplot(aes(anio, valor, color = variable)) +
+  geom_line(size = 1.1) +
+  geom_point() +
+  theme_minimal() +
+  labs(
+    title = "Evolución temporal de renta y precio de la vivienda",
+    x = "Año",
+    y = "Valor medio"
+  )
+
+
+```
+
+# TRABAJO CON VARIABLES PARA MAPAS
+```{r}
+vars_mapa <- c(
+  "SUPERFICIE VERDE TOTAL M2",
+  "PRECIO MEDIO DE LA VIVIENDA EUROSM2",
+  "PARO REGISTRADO",
+  "RENTA NETA MEDIA ANUAL DE LOS HOGARES",
+  "PROPORCION DE INMIGRANTES",
+  "TAMANO MEDIO DEL HOGAR",
+  "NUMERO DE PARQUES GRANDES 15000 M2"
+)
+
+library(sf)
+
+ruta_barrios <- "C:/MASTER DATA SCIENCE/5 semestre/TFM/DATOS/Limites administrativos por Barrios.json"
+
+barrios_sf <- st_read(ruta_barrios)
+names(barrios_sf)
+
+barrios_sf <- st_make_valid(barrios_sf)
+
+```
+
+## precio medio vivienda por año
+```{r}
+
+library(ggplot2)
+
+cortes_precio <- c(0, 2000, 3000, 4000, 5000, Inf)
+labels_precio <- c(
+  "< 2.000",
+  "2.000 – 3.000",
+  "3.000 – 4.000",
+  "4.000 – 5.000",
+  "≥ 5.000"
+)
+
+
+panel_ancho <- panel_ancho %>%
+  mutate(
+    PRECIO_VIVIENDA_CLASE = cut(
+      `PRECIO MEDIO DE LA VIVIENDA EUROSM2`,
+      breaks = c(0, 2000, 3000, 4000, 5000, Inf),
+      labels = c(
+        "< 2.000",
+        "2.000 – 3.000",
+        "3.000 – 4.000",
+        "4.000 – 5.000",
+        "≥ 5.000"
+      ),
+      include.lowest = TRUE
+    )
+  )
+
+mapa_panel_filtrado <- barrios_sf %>%
+  left_join(
+    panel_ancho %>%
+      filter(
+        anio != 2025,
+        !is.na(PRECIO_VIVIENDA_CLASE)
+      ),
+    by = c("BARRIO_MAY" = "barrio")
+  )
+
+
+ggplot(mapa_panel_filtrado) +
+  geom_sf(
+    aes(fill = PRECIO_VIVIENDA_CLASE),
+    color = "white",
+    linewidth = 0.15
+  ) +
+  facet_wrap(~ anio, ncol = 4) +
+  scale_fill_brewer(
+    palette = "Reds",
+    name = "Precio vivienda (€/m²)",
+    drop = FALSE
+  ) +
+  labs(
+    title = "Precio medio de la vivienda por barrio",
+    subtitle = "Intervalos fijos comparables en el tiempo",
+    caption = "Fuente: Ayuntamiento de Madrid"
+  ) +
+  theme_minimal() +
+  theme(
+    # 🔹 eliminar completamente referencias espaciales
+    panel.grid = element_blank(),
+    axis.text = element_blank(),
+    axis.ticks = element_blank(),
+    axis.title = element_blank(),
+
+    # 🔹 mejorar legibilidad
+    text = element_text(color = "black"),
+    plot.title = element_text(face = "bold"),
+    strip.text = element_text(face = "bold"),
+    legend.title = element_text(face = "bold")
+  )
+
+ggsave(
+  "mapa_precio_vivienda_intervalos_fijos.png",
+  width = 18,
+  height = 14,
+  dpi = 300,
+  bg = "white"
+)
+
+```
+
+## Mapas de todas las variables con calculo automatico de cuartiles
+```{r}
+library(dplyr)
+
+variables_cuartiles <- c(
+  "PARO REGISTRADO",
+  "RENTA NETA MEDIA ANUAL DE LOS HOGARES",
+  "PROPORCION DE INMIGRANTES",
+  "TAMANO MEDIO DEL HOGAR",
+  "SUPERFICIE VERDE TOTAL M2",
+  "NUMERO DE PARQUES GRANDES 15000 M2"
+)
+
+calcular_cuartiles_globales <- function(x) {
+  quantile(x, probs = c(0.25, 0.5, 0.75), na.rm = TRUE)
+}
+
+codificar_cuartiles_globales <- function(x, q) {
+  cut(
+    x,
+    breaks = c(-Inf, q[1], q[2], q[3], Inf),
+    labels = c("Q1 (bajo)", "Q2", "Q3", "Q4 (alto)"),
+    include.lowest = TRUE
+  )
+}
+
+for (var in variables_cuartiles) {
+
+  q <- calcular_cuartiles_globales(panel_ancho[[var]])
+
+  nueva_var <- paste0(var, "_Q")
+
+  panel_ancho[[nueva_var]] <-
+    codificar_cuartiles_globales(panel_ancho[[var]], q)
+}
+
+mapa_panel <- barrios_sf %>%
+  left_join(
+    panel_ancho %>%
+      filter(anio != 2025),
+    by = c("BARRIO_MAY" = "barrio")
+  )
+
+mapa_cuartiles <- function(
+  sf_data,
+  variable_q,
+  titulo,
+  paleta = "Blues"
+) {
+
+  ggplot(
+    sf_data %>% filter(!is.na(.data[[variable_q]]))
+  ) +
+    geom_sf(
+      aes(fill = .data[[variable_q]]),
+      color = "white",
+      linewidth = 0.15
+    ) +
+    facet_wrap(~ anio, ncol = 4) +
+    scale_fill_brewer(
+      palette = paleta,
+      name = "Cuartil global",
+      drop = FALSE
+    ) +
+    labs(
+      title = titulo,
+      subtitle = "Clasificación por cuartiles globales",
+      caption = "Fuente: Ayuntamiento de Madrid"
+    ) +
+    theme_minimal() +
+    theme(
+      panel.grid = element_blank(),
+      axis.text = element_blank(),
+      axis.ticks = element_blank(),
+      axis.title = element_blank(),
+      text = element_text(color = "black"),
+      plot.title = element_text(face = "bold"),
+      strip.text = element_text(face = "bold"),
+      legend.title = element_text(face = "bold")
+    )
+}
+
+guardar_mapa_cuartiles <- function(
+  sf_data,
+  variable_q,
+  titulo,
+  archivo,
+  paleta = "Blues",
+  width = 18,
+  height = 14
+) {
+
+  p <- ggplot(
+    sf_data %>% filter(!is.na(.data[[variable_q]]))
+  ) +
+    geom_sf(
+      aes(fill = .data[[variable_q]]),
+      color = "white",
+      linewidth = 0.15
+    ) +
+    facet_wrap(~ anio, ncol = 4) +
+    scale_fill_brewer(
+      palette = paleta,
+      name = "Cuartil global",
+      drop = FALSE
+    ) +
+    labs(
+      title = titulo,
+      subtitle = "Clasificación por cuartiles globales",
+      caption = "Fuente: Ayuntamiento de Madrid"
+    ) +
+    theme_minimal() +
+    theme(
+      panel.grid = element_blank(),
+      axis.text = element_blank(),
+      axis.ticks = element_blank(),
+      axis.title = element_blank(),
+      text = element_text(color = "black"),
+      plot.title = element_text(face = "bold"),
+      strip.text = element_text(face = "bold"),
+      legend.title = element_text(face = "bold")
+    )
+
+  ggsave(
+    filename = file.path("figuras_mapas", archivo),
+    plot = p,
+    width = width,
+    height = height,
+    dpi = 300,
+    bg = "white"
+  )
+}
+
+mapa_cuartiles(
+  mapa_panel,
+  "PARO REGISTRADO_Q",
+  "Paro registrado por barrio"
+)
+
+mapa_cuartiles(
+  mapa_panel,
+  "RENTA NETA MEDIA ANUAL DE LOS HOGARES_Q",
+  "Renta neta media anual de los hogares"
+)
+
+mapa_cuartiles(
+  mapa_panel,
+  "PROPORCION DE INMIGRANTES_Q",
+  "Proporción de inmigrantes por barrio",
+  paleta = "Greens"
+)
+
+mapa_cuartiles(
+  mapa_panel,
+  "SUPERFICIE VERDE TOTAL M2_Q",
+  "Superficie verde total por barrio",
+  paleta = "Greens"
+)
+
+
+guardar_mapa_cuartiles(
+  mapa_panel,
+  "PARO REGISTRADO_Q",
+  "Paro registrado por barrio",
+  "mapa_paro_registrado.png",
+  paleta = "Reds"
+)
+
+guardar_mapa_cuartiles(
+  mapa_panel,
+  "RENTA NETA MEDIA ANUAL DE LOS HOGARES_Q",
+  "Renta neta media anual de los hogares",
+  "mapa_renta_neta.png",
+  paleta = "Greens"
+)
+
+guardar_mapa_cuartiles(
+  mapa_panel,
+  "PROPORCION DE INMIGRANTES_Q",
+  "Proporción de inmigrantes por barrio",
+  "mapa_inmigrantes.png",
+  paleta = "Purples"
+)
+
+guardar_mapa_cuartiles(
+  mapa_panel,
+  "TAMANO MEDIO DEL HOGAR_Q",
+  "Tamaño medio del hogar",
+  "mapa_tamano_hogar.png",
+  paleta = "Blues"
+)
+
+guardar_mapa_cuartiles(
+  mapa_panel,
+  "SUPERFICIE VERDE TOTAL M2_Q",
+  "Superficie verde total por barrio",
+  "mapa_superficie_verde.png",
+  paleta = "Greens"
+)
+
+guardar_mapa_cuartiles(
+  mapa_panel,
+  "NUMERO DE PARQUES GRANDES 15000 M2_Q",
+  "Número de parques grandes (>15.000 m²)",
+  "mapa_parques_grandes.png",
+  paleta = "Greens"
+)
+
+```
+
+# GRAFICOS VARIOS
+
+```{r}
+
+library(dplyr)
+
+
+library(dplyr)
+
+variable <- "PRECIO MEDIO DE LA VIVIENDA EUROSM2"
+
+variable <- "PRECIO MEDIO DE LA VIVIENDA EUROSM2"
+
+top_barrios_precio <- panel_ancho %>%
+  filter(
+    !is.na(.data[[variable]]),
+    .data[[variable]] > 0          # ⬅️ excluye ceros
+  ) %>%
+  arrange(barrio, anio) %>%
+  group_by(barrio) %>%
+  summarise(
+    primero = first(.data[[variable]]),
+    ultimo  = last(.data[[variable]]),
+    diferencia = ultimo - primero,
+    .groups = "drop"
+  ) %>%
+  filter(
+    !is.na(diferencia),
+    diferencia > 0                # ⬅️ solo incrementos reales
+  ) %>%
+  arrange(desc(diferencia)) %>%
+  slice_head(n = 6) %>%
+  pull(barrio)
+
+
+
+library(ggplot2)
+
+ggplot(
+  panel_ancho %>% filter(barrio %in% top_barrios_precio),
+  aes(
+    x = anio,
+    y = .data[[variable]],
+    color = barrio,
+    group = barrio
+  )
+) +
+  geom_line(linewidth = 1) +
+  geom_point(size = 2) +
+  labs(
+    title = "Barrios con mayor incremento del precio de la vivienda",
+    subtitle = "Diferencia entre el primer y último valor observado",
+    x = "Año",
+    y = "€/m²"
+  ) +
+  theme_minimal() +
+  theme(
+    legend.position = "bottom",
+    plot.title = element_text(face = "bold")
+  )
+
+ggsave(
+  filename = "salidas/top_barrios_incremento_precio_vivienda.png",
+  plot = last_plot(),
+  width = 14,
+  height = 8,
+  dpi = 300,
+  bg = "white"
+)
+
+```
+
+
+```{r}
+
+ggplot(
+  panel_ancho,
+  aes(
+    x = `RENTA NETA MEDIA ANUAL DE LOS HOGARES`,
+    y = `PRECIO MEDIO DE LA VIVIENDA EUROSM2`
+  )
+) +
+  geom_point(alpha = 0.4) +
+  geom_smooth(method = "lm", se = FALSE, color = "red") +
+  labs(
+    title = "Relación entre renta y precio de la vivienda",
+    x = "Renta media (€)",
+    y = "Precio vivienda (€/m²)"
+  ) +
+  theme_minimal()
+
+ggsave(
+  filename = "salidas/Relación entre renta y precio de la vivienda.png",
+  plot = last_plot(),
+  width = 14,
+  height = 8,
+  dpi = 300,
+  bg = "white"
+)
+
+```
+
+## desconexion renta precio 
+```{r}
+df_renta_precio <- panel_ancho %>%
+  filter(
+    !is.na(`PRECIO MEDIO DE LA VIVIENDA EUROSM2`),
+    !is.na(`RENTA NETA MEDIA ANUAL DE LOS HOGARES`),
+    `PRECIO MEDIO DE LA VIVIENDA EUROSM2` > 0,
+    `RENTA NETA MEDIA ANUAL DE LOS HOGARES` > 0
+  )
+
+modelo_global <- lm(
+  `PRECIO MEDIO DE LA VIVIENDA EUROSM2` ~
+    `RENTA NETA MEDIA ANUAL DE LOS HOGARES`,
+  data = df_renta_precio
+)
+
+summary(modelo_global)
+
+df_renta_precio <- df_renta_precio %>%
+  mutate(
+    residual_precio = resid(modelo_global)
+  )
+
+desconexion_barrios <- df_renta_precio %>%
+  group_by(barrio) %>%
+  summarise(
+    residual_medio = mean(residual_precio, na.rm = TRUE),
+    n = n(),
+    .groups = "drop"
+  ) %>%
+  filter(n >= 3) %>%               # mínimo de años
+  arrange(desc(residual_medio))
+
+head(desconexion_barrios, 10)
+
+
+```
+
+## evolucion ratio precio/renta
+```{r}
+
+df_renta_precio <- df_renta_precio %>%
+  mutate(
+    ratio_precio_renta =
+      `PRECIO MEDIO DE LA VIVIENDA EUROSM2` /
+      `RENTA NETA MEDIA ANUAL DE LOS HOGARES`
+  )
+
+top_ratio_barrios <- df_renta_precio %>%
+  group_by(barrio) %>%
+  summarise(
+    ratio_medio = mean(ratio_precio_renta, na.rm = TRUE),
+    n = n(),
+    .groups = "drop"
+  ) %>%
+  filter(n >= 3) %>%
+  arrange(desc(ratio_medio)) %>%
+  slice_head(n = 6) %>%
+  pull(barrio)
+
+ggplot(
+  df_renta_precio %>% filter(barrio %in% top_ratio_barrios),
+  aes(
+    x = anio,
+    y = ratio_precio_renta,
+    color = barrio
+  )
+) +
+  geom_line(linewidth = 1) +
+  geom_point(size = 2) +
+  labs(
+    title = "Desconexión entre precio de la vivienda y renta",
+    subtitle = "Evolución del ratio Precio / Renta",
+    x = "Año",
+    y = "Precio €/m² / Renta (€)"
+  ) +
+  theme_minimal() +
+  theme(legend.position = "bottom")
+
+ggsave(
+  filename = "Desconexión entre precio de la vivienda y renta top barrios.png",
+  plot = last_plot(),
+  width = 14,
+  height = 8,
+  dpi = 300,
+  bg = "white"
+)
+```
+
+
+
+
+```{r}
+
+ggplot(
+  panel_ancho,
+  aes(
+    x = `PROPORCION DE INMIGRANTES`,
+    y = `PRECIO MEDIO DE LA VIVIENDA EUROSM2`
+  )
+) +
+  geom_point(alpha = 0.4) +
+  facet_wrap(~ anio) +
+  labs(
+    title = "Precio de la vivienda y proporción de inmigrantes",
+    x = "Proporción de inmigrantes",
+    y = "Precio vivienda (€/m²)"
+  ) +
+  theme_minimal()
+
+ggsave(
+  filename = "salidas/Precio de la vivienda y proporción de inmigrantes.png",
+  plot = last_plot(),
+  width = 14,
+  height = 8,
+  dpi = 300,
+  bg = "white"
+)
+```
+
+
+
+#GRAFICAS MADRID RIO
+```{r}
+
+panel_ancho <- panel_ancho %>%
+  mutate(
+    PRECIO_VIVIENDA_CLASE = cut(
+      `PRECIO MEDIO DE LA VIVIENDA EUROSM2`,
+      breaks = quantile(
+        `PRECIO MEDIO DE LA VIVIENDA EUROSM2`,
+        probs = seq(0, 1, 0.2),
+        na.rm = TRUE
+      ),
+      include.lowest = TRUE,
+      labels = c(
+        "Muy bajo",
+        "Bajo",
+        "Medio",
+        "Alto",
+        "Muy alto"
+      )
+    )
+  )
+
+mapa_panel <- barrios_sf %>%
+  left_join(
+    panel_ancho,
+    by = c("BARRIO_MAY" = "barrio")
+  )
+
+
+barrios_madrid_rio <- panel_ancho %>%
+  filter(`DISTANCIA A MADRID RIO M` <= 1300) %>%
+  distinct(barrio) %>%
+  pull(barrio)
+
+mapa_madrid_rio <- mapa_panel %>%
+  filter(BARRIO_MAY %in% barrios_madrid_rio)
+
+
+
+
+ggplot(mapa_madrid_rio) +
+  geom_sf(aes(fill = PRECIO_VIVIENDA_CLASE), color = "white", linewidth = 0.2) +
+  facet_wrap(~ anio) +
+  scale_fill_brewer(palette = "Reds") +
+  labs(
+    title = "Precio de la vivienda en barrios del entorno de Madrid Río",
+    fill = "Precio €/m²"
+  ) +
+  theme_minimal() +
+  theme(panel.grid = element_blank())
+
+ggsave(
+  filename = "salidas/Precio de la vivienda en barrios del entorno de Madrid Río.png",
+  plot = last_plot(),
+  width = 14,
+  height = 8,
+  dpi = 300,
+  bg = "white"
+)
+
+mapa_madrid_rio %>%
+  filter(anio %in% c(2018, 2024)) %>%
+  ggplot() +
+  geom_sf(aes(fill = PRECIO_VIVIENDA_CLASE), color = "white") +
+  facet_wrap(~ anio) +
+  scale_fill_brewer(palette = "Reds") +
+  labs(
+    title = "Evolución del precio de la vivienda en Madrid Río",
+    subtitle = "Comparación 2018 vs 2024"
+  ) +
+  theme_minimal()
+
+ggsave(
+  filename = "salidas/Evolución del precio de la vivienda en Madrid Río.png",
+  plot = last_plot(),
+  width = 14,
+  height = 8,
+  dpi = 300,
+  bg = "white"
+)
+
+mapa_madrid_rio_filtrado <- mapa_madrid_rio %>%
+  filter(!anio %in% c(2018, 2025))
+
+
+ggplot() +
+  geom_sf(
+    data = mapa_madrid_rio_filtrado,
+    aes(fill = `SUPERFICIE VERDE TOTAL M2`),
+    color = NA
+  ) +
+  geom_sf(
+    data = mapa_madrid_rio_filtrado,
+    aes(color = PRECIO_VIVIENDA_CLASE),
+    fill = NA,
+    linewidth = 0.7
+  ) +
+  facet_wrap(~ anio, ncol = 3) +
+  scale_fill_viridis_c(
+    name = "Superficie verde total (m²)",
+    option = "C",
+    na.value = "grey90"
+  ) +
+  scale_color_brewer(
+    palette = "Reds",
+    name = "Precio vivienda (€/m²)"
+  ) +
+  labs(
+    title = "Superficie verde y presión inmobiliaria",
+    subtitle = "Barrios en el entorno de Madrid Río",
+    caption = "Fuente: Elaboración propia"
+  ) +
+  theme_void() +
+  theme(
+    legend.position = "bottom",
+    legend.box = "vertical",
+    strip.text = element_text(size = 11, face = "bold"),
+    plot.title = element_text(size = 16, face = "bold"),
+    plot.subtitle = element_text(size = 12),
+    plot.caption = element_text(size = 9, color = "grey40")
+  )
+
+ggsave(
+  filename = "salidas/Superficie verde y presión inmobiliaria en el entorno de Madrid Río.png",
+  plot = last_plot(),
+  width = 14,
+  height = 8,
+  dpi = 300,
+  bg = "white"
+)
+```
+
+
+### mapa precio vivienda sol y numancia para barrios de control
+
+```{r}
+
+mapa_sol <- mapa_panel %>%
+  filter(BARRIO_MAY == "SOL")
+
+mapa_numancia <- mapa_panel %>%
+  filter(BARRIO_MAY == "NUMANCIA")
+
+mapa_sol_18_24 <- mapa_panel %>%
+  filter(BARRIO_MAY == "SOL", anio %in% c(2018, 2024))
+
+ggplot(mapa_sol_18_24) +
+  geom_sf(aes(fill = PRECIO_VIVIENDA_CLASE), color = "white", linewidth = 0.2) +
+  facet_wrap(~ anio) +
+  scale_fill_brewer(palette = "Reds", drop = FALSE) +
+  labs(
+    title = "Evolución del precio de la vivienda en el barrio de Sol",
+    subtitle = "Comparación 2018 vs 2024",
+    fill = "Precio €/m²"
+  ) +
+  theme_minimal() +
+  theme(panel.grid = element_blank())
+
+ggsave(
+  filename = "salidas/Evolución del precio de la vivienda en el barrio de Sol.png",
+  plot = last_plot(),
+  width = 14,
+  height = 8,
+  dpi = 300,
+  bg = "white"
+)
+
+mapa_numancia_18_24 <- mapa_panel %>%
+  filter(BARRIO_MAY == "NUMANCIA", anio %in% c(2018, 2024))
+
+ggplot(mapa_numancia_18_24) +
+  geom_sf(aes(fill = PRECIO_VIVIENDA_CLASE), color = "white", linewidth = 0.2) +
+  facet_wrap(~ anio) +
+  scale_fill_brewer(palette = "Reds", drop = FALSE) +
+  labs(
+    title = "Evolución del precio de la vivienda en el barrio de Numancia",
+    subtitle = "Comparación 2018 vs 2024",
+    fill = "Precio €/m²"
+  ) +
+  theme_minimal() +
+  theme(panel.grid = element_blank())
+
+ggsave(
+  filename = "salidas/Evolución del precio de la vivienda en el barrio de Numancia.png",
+  plot = last_plot(),
+  width = 14,
+  height = 8,
+  dpi = 300,
+  bg = "white"
+)
+```
+
+
+```{r}
+library(dplyr)
+library(sf)
+
+
+panel_barrio_anio <- panel_ancho %>%
+  group_by(barrio, anio) %>%
+  summarise(
+    estudios_superiores = mean(
+      `ESTUDIOS SUPERIORES LICENCIADO ARQUITECTO O INGENIERO SUPERIOR ESTUDIOS SUPERIORES NO UNIVERSITARIOS DOCTORADO ESTUDIOS POSTGRADUADOS`,
+      na.rm = TRUE
+    ),
+    estudios_bajos = mean(
+      `BACHILLER ELEMENTAL GRADUADO ESCOLAR ESO FORMACION PROFESIONAL 1 GRADO`,
+      na.rm = TRUE
+    ),
+    .groups = "drop"
+  )
+
+str(educacion_cambio)
+summary(educacion_cambio$cambio_estudios_superiores)
+head(unique(mapa_panel$BARRIO_MAY))
+head(unique(educacion_cambio$barrio))
+
+
+educacion_cambio <- panel_barrio_anio %>%
+  filter(anio %in% c(2018, 2024)) %>%
+  pivot_wider(
+    names_from = anio,
+    values_from = c(estudios_superiores, estudios_bajos)
+  ) %>%
+  mutate(
+    cambio_estudios_superiores =
+      estudios_superiores_2024 - estudios_superiores_2018,
+    cambio_estudios_bajos =
+      estudios_bajos_2024 - estudios_bajos_2018
+  )
+
+
+mapa_recambio_educativo <- mapa_panel %>%
+  left_join(educacion_cambio, by = c("BARRIO_MAY" = "barrio")) %>%
+  filter(BARRIO_MAY %in% barrios_madrid_rio)
+
+ggplot(mapa_recambio_educativo) +
+  geom_sf(aes(fill = cambio_estudios_superiores), color = "white", linewidth = 0.2) +
+  scale_fill_gradient2(
+    low = "blue",
+    mid = "white",
+    high = "red",
+    midpoint = 0,
+    name = "Cambio estudios superiores"
+  ) +
+  labs(
+    title = "Recambio social: cambio en población con estudios superiores",
+    subtitle = "Entorno de Madrid Río (2018–2024)"
+  ) +
+  theme_minimal() +
+  theme(panel.grid = element_blank())
+
+ggsave(
+  filename = "salidas/Recambio social: cambio en población con estudios superiores_Madrid rio.png",
+  plot = last_plot(),
+  width = 14,
+  height = 8,
+  dpi = 300,
+  bg = "white"
+)
+```
+
+
+## recambio social
+
+```{r}
+library(dplyr)
+library(tidyr)
+
+panel_barrio_anio <- panel_ancho %>%
+  group_by(barrio, anio) %>%
+  summarise(
+    estudios_superiores = sum(
+      `ESTUDIOS SUPERIORES LICENCIADO ARQUITECTO O INGENIERO SUPERIOR ESTUDIOS SUPERIORES NO UNIVERSITARIOS DOCTORADO ESTUDIOS POSTGRADUADOS`,
+      na.rm = TRUE
+    ),
+    .groups = "drop"
+  )
+
+educacion_cambio <- panel_barrio_anio %>%
+  filter(anio %in% c(2018, 2024)) %>%
+  pivot_wider(
+    names_from = anio,
+    values_from = estudios_superiores
+  ) %>%
+  mutate(
+    delta_estudios_superiores = `2024` - `2018`
+  )
+
+
+
+mapa_recambio <- mapa_panel %>%
+  left_join(educacion_cambio, by = c("BARRIO_MAY" = "barrio"))
+
+ggplot(mapa_recambio) +
+  geom_sf(aes(fill = delta_estudios_superiores),
+          color = "white", linewidth = 0.2) +
+  scale_fill_gradient2(
+    low = "blue", mid = "white", high = "red",
+    midpoint = 0,
+    name = "Δ estudios superiores"
+  ) +
+  labs(
+    title = "Recambio social: cambio en población con estudios superiores",
+    subtitle = "2018–2024"
+  ) +
+  theme_minimal() +
+  theme(panel.grid = element_blank())
+
+ggsave(
+  filename = "salidas/Recambio social: cambio en población con estudios superiores.png",
+  plot = last_plot(),
+  width = 14,
+  height = 8,
+  dpi = 300,
+  bg = "white"
+)
+```
+
+
+```{r}
+
+ggplot(
+  panel_ancho,
+  aes(
+    x = `ESTUDIOS SUPERIORES LICENCIADO ARQUITECTO O INGENIERO SUPERIOR ESTUDIOS SUPERIORES NO UNIVERSITARIOS DOCTORADO ESTUDIOS POSTGRADUADOS`,
+    y = `PROPORCION DE INMIGRANTES`,
+    color = factor(anio),
+    size = `PRECIO MEDIO DE LA VIVIENDA EUROSM2`
+  )
+) +
+  geom_point(alpha = 0.7) +
+  scale_color_brewer(palette = "Set1", name = "Año") +
+  scale_size_continuous(name = "Precio vivienda €/m²") +
+  labs(
+    title = "Recambio social: educación, inmigración y mercado inmobiliario",
+    x = "% población con estudios superiores",
+    y = "% población inmigrante"
+  ) +
+  theme_minimal()
+
+ggsave(
+  filename = "salidas/Recambio social: educación, inmigración y mercado inmobiliario.png",
+  plot = last_plot(),
+  width = 14,
+  height = 8,
+  dpi = 300,
+  bg = "white"
+)
+```
+
+
+
+```{r}
+barrios_clave <- c(
+  "ACACIAS", "CHOPERA", "IMPERIAL",
+  "SOL", "NUMANCIA", "PUERTA DEL ANGEL",
+  "LOS CARMENES", "USERA", "CASCO HISTORICO DE VICALVARO", "CASCO HISTORICO DE VALLECAS"
+)
+
+panel_ancho %>%
+  filter(barrio %in% barrios_clave) %>%
+  ggplot(aes(x = anio)) +
+  geom_line(
+    aes(
+      y = `ESTUDIOS SUPERIORES LICENCIADO ARQUITECTO O INGENIERO SUPERIOR ESTUDIOS SUPERIORES NO UNIVERSITARIOS DOCTORADO ESTUDIOS POSTGRADUADOS`,
+      color = "Estudios superiores"
+    ),
+    linewidth = 1
+  ) +
+  geom_line(
+    aes(
+      y = `PROPORCION DE INMIGRANTES`,
+      color = "Inmigración"
+    ),
+    linewidth = 1,
+    linetype = "dashed"
+  ) +
+  facet_wrap(~ barrio) +
+  scale_color_manual(
+    values = c(
+      "Estudios superiores" = "darkred",
+      "Inmigración" = "darkblue"
+    ),
+    name = ""
+  ) +
+  labs(
+    title = "Trayectorias de recambio social en barrios del entorno de Madrid Río",
+    y = "Proporción"
+  ) +
+  theme_minimal()
+
+ggsave(
+  filename = "salidas/Trayectorias de recambio social en barrios del entorno de Madrid Río.png",
+  plot = last_plot(),
+  width = 14,
+  height = 8,
+  dpi = 300,
+  bg = "white"
+)
+
+```
+
+
+```{r}
+
+library(ggplot2)
+library(dplyr)
+
+
+# calcular rangos
+max_estudios <- max(
+  panel_ancho$`ESTUDIOS SUPERIORES LICENCIADO ARQUITECTO O INGENIERO SUPERIOR ESTUDIOS SUPERIORES NO UNIVERSITARIOS DOCTORADO ESTUDIOS POSTGRADUADOS`,
+  na.rm = TRUE
+)
+
+max_inmigracion <- max(
+  panel_ancho$`PROPORCION DE INMIGRANTES`,
+  na.rm = TRUE
+)
+
+factor_escala <- max_estudios / max_inmigracion
+
+
+panel_ancho %>%
+  filter(barrio %in% barrios_clave) %>%
+  ggplot(aes(x = anio)) +
+  
+  # Estudios superiores (eje principal)
+  geom_line(
+    aes(
+      y = `ESTUDIOS SUPERIORES LICENCIADO ARQUITECTO O INGENIERO SUPERIOR ESTUDIOS SUPERIORES NO UNIVERSITARIOS DOCTORADO ESTUDIOS POSTGRADUADOS`,
+      color = "Estudios superiores"
+    ),
+    linewidth = 1
+  ) +
+  
+  # Inmigración reescalada (eje secundario)
+  geom_line(
+    aes(
+      y = `PROPORCION DE INMIGRANTES` * factor_escala,
+      color = "Inmigración"
+    ),
+    linewidth = 1,
+    linetype = "dashed"
+  ) +
+  
+  facet_wrap(~ barrio) +
+  
+  scale_y_continuous(
+    name = "Proporción población con estudios superiores",
+    sec.axis = sec_axis(
+      ~ . / factor_escala,
+      name = "Proporción población inmigrante"
+    )
+  ) +
+  
+  scale_color_manual(
+    values = c(
+      "Estudios superiores" = "darkred",
+      "Inmigración" = "darkblue"
+    ),
+    name = ""
+  ) +
+  
+  labs(
+    title = "Trayectorias de recambio social en barrios de Madrid",
+    subtitle = "Evolución conjunta de capital educativo e inmigración",
+    x = "Año"
+  ) +
+  
+  theme_minimal() +
+  theme(
+    panel.grid.minor = element_blank(),
+    strip.text = element_text(face = "bold"),
+    legend.position = "bottom"
+  )
+
+panel_ancho %>%
+  filter(barrio %in% barrios_clave) %>%
+  ggplot(aes(
+    x = anio,
+    y = `ESTUDIOS SUPERIORES LICENCIADO ARQUITECTO O INGENIERO SUPERIOR ESTUDIOS SUPERIORES NO UNIVERSITARIOS DOCTORADO ESTUDIOS POSTGRADUADOS`,
+    color = barrio
+  )) +
+  geom_line(linewidth = 1) +
+  labs(
+    title = "Evolución del capital educativo en barrios seleccionados",
+    y = "Proporción de población con estudios superiores",
+    x = "Año",
+    color = "Barrio"
+  ) +
+  theme_minimal() +
+  theme(
+    legend.position = "right"
+  )
+
+ggsave(
+  filename = "salidas/Evolución del capital educativo en barrios seleccionados.png",
+  plot = last_plot(),
+  width = 14,
+  height = 8,
+  dpi = 300,
+  bg = "white"
+)
+```
+
+```{r}
+library(dplyr)
+library(broom)
+
+tendencias_estudios <- panel_ancho %>%
+  filter(!is.na(
+    `ESTUDIOS SUPERIORES LICENCIADO ARQUITECTO O INGENIERO SUPERIOR ESTUDIOS SUPERIORES NO UNIVERSITARIOS DOCTORADO ESTUDIOS POSTGRADUADOS`
+  )) %>%
+  group_by(barrio) %>%
+  do(
+    tidy(
+      lm(
+        `ESTUDIOS SUPERIORES LICENCIADO ARQUITECTO O INGENIERO SUPERIOR ESTUDIOS SUPERIORES NO UNIVERSITARIOS DOCTORADO ESTUDIOS POSTGRADUADOS` ~ anio,
+        data = .
+      )
+    )
+  ) %>%
+  filter(term == "anio") %>%
+  select(barrio, estimate, p.value) %>%
+  arrange(estimate)
+
+tendencias_estudios %>%
+  filter(estimate < 0)
+
+```
+
+```{r}
+ggplot(
+  panel_ancho,
+  aes(
+    x = `TAMANO MEDIO DEL HOGAR`,
+    y = `TASA BRUTA DE NATALIDAD`,
+    color = factor(anio),
+    size = `PRECIO MEDIO DE LA VIVIENDA EUROSM2`
+  )
+) +
+  geom_point(alpha = 0.7) +
+  scale_color_brewer(palette = "Dark2", name = "Año") +
+  labs(
+    title = "Recambio familiar y presión inmobiliaria",
+    x = "Tamaño medio del hogar",
+    y = "Tasa bruta de natalidad"
+  ) +
+  theme_minimal()
+
+ggsave(
+  filename = "salidas/Recambio familiar y presión inmobiliaria.png",
+  plot = last_plot(),
+  width = 14,
+  height = 8,
+  dpi = 300,
+  bg = "white"
+)
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+# Codificacion, normalizacion, PCA, clustering y Random forest.
+```{r}
+
+panel_ancho %>%
+  summarise(n = n(), .by = c(barrio, anio)) %>%
+  filter(n > 1)
+
+```
+```{r}
+
+panel_ancho_unico <- panel_ancho %>%
+  group_by(barrio, anio) %>%
+  summarise(
+    across(
+      where(is.numeric),
+      ~ first(na.omit(.))
+    ),
+    .groups = "drop"
+  )
+
+
+```
+
+# PROCESO DE CALCULO DE CLUSTERING EN LA QUE CADA PUNTO ES un barrio-ano y RF de prediccion de precio medio vivienda
+
+##preparacion de datos: limpieza, etc
+```{r}
+
+library(dplyr)
+
+na_summary <- panel_ancho %>%
+  summarise(across(everything(),
+                   ~ mean(is.na(.)))) %>%
+  pivot_longer(everything(),
+               names_to = "variable",
+               values_to = "prop_na") %>%
+  arrange(desc(prop_na))
+
+na_summary
+
+panel_verde <- panel_ancho %>%
+  group_by(barrio) %>%
+  mutate(
+    SUPERFICIE_VERDE_TOTAL_M2 =
+      ifelse(
+        all(is.na(`SUPERFICIE VERDE TOTAL M2`)),
+        NA,
+        ifelse(
+          is.na(`SUPERFICIE VERDE TOTAL M2`),
+          max(`SUPERFICIE VERDE TOTAL M2`, na.rm = TRUE),
+          `SUPERFICIE VERDE TOTAL M2`
+        )
+      )
+  ) %>%
+  ungroup()
+
+na_summary <- panel_verde %>%
+  summarise(across(everything(),
+                   ~ mean(is.na(.)))) %>%
+  pivot_longer(everything(),
+               names_to = "variable",
+               values_to = "prop_na") %>%
+  arrange(desc(prop_na))
+
+na_summary
+
+library(janitor)
+
+panel_limpio <- panel_verde %>%
+  select(-`SUPERFICIE VERDE TOTAL M2`)
+
+panel_limpio <- panel_limpio %>%
+  clean_names()
+
+
+
+library(zoo)
+
+panel_interp <- panel_limpio %>%
+  arrange(barrio, anio) %>%
+  group_by(barrio) %>%
+  mutate(across(
+    c(
+      precio_medio_de_la_vivienda_eurosm2,
+      transacciones_de_vivienda_total,
+      edad_media_de_la_poblacion,
+      renta_neta_media_anual_de_los_hogares,
+      paro_registrado,
+      proporcion_de_inmigrantes,
+      tamano_medio_del_hogar,
+      hogares_unipersonales_mayores_65,
+      tasa_bruta_de_natalidad
+    ),
+    ~ zoo::na.approx(., anio, na.rm = FALSE)
+  )) %>%
+  ungroup()
+
+na_summary <- panel_interp %>%
+  summarise(across(everything(),
+                   ~ mean(is.na(.)))) %>%
+  pivot_longer(everything(),
+               names_to = "variable",
+               values_to = "prop_na") %>%
+  arrange(desc(prop_na))
+
+na_summary
+
+```
+
+
+
+```{r}
+# Valoro eliminacion NAs
+library(dplyr)
+
+
+n_total <- nrow(panel_interp)
+n_total
+
+rf_vars <- panel_interp %>%
+  select(
+    precio_medio_de_la_vivienda_eurosm2,
+    renta_neta_media_anual_de_los_hogares,
+    paro_registrado,
+    estudios_superiores_licenciado_arquitecto_o_ingeniero_superior_estudios_superiores_no_universitarios_doctorado_estudios_postgraduados,
+    bachiller_elemental_graduado_escolar_eso_formacion_profesional_1_grado,
+    edad_media_de_la_poblacion,
+    tamano_medio_del_hogar,
+    hogares_unipersonales_mayores_65,
+    proporcion_de_inmigrantes,
+    transacciones_de_vivienda_total,
+    superficie_verde_total_m2,
+    numero_de_parques_grandes_15000_m2,
+    distancia_a_madrid_rio_m,
+    anio
+  )
+
+nrow(rf_vars)
+
+
+rf_complete <- rf_vars %>%
+  filter(complete.cases(.))
+
+n_rf <- nrow(rf_complete)
+n_rf
+
+pct_conservado <- n_rf / n_total * 100
+pct_conservado
+
+colSums(is.na(rf_vars))
+
+data.frame(
+  observaciones_totales = n_total,
+  observaciones_rf = n_rf,
+  porcentaje_conservado = round(pct_conservado, 1)
+)
+
+
+educativas_na <- panel_interp %>%
+  filter(
+    is.na(estudios_superiores_licenciado_arquitecto_o_ingeniero_superior_estudios_superiores_no_universitarios_doctorado_estudios_postgraduados) |
+    is.na(bachiller_elemental_graduado_escolar_eso_formacion_profesional_1_grado)
+  ) %>%
+  select(
+    barrio,
+    distrito,
+    anio,
+    estudios_superiores_licenciado_arquitecto_o_ingeniero_superior_estudios_superiores_no_universitarios_doctorado_estudios_postgraduados,
+    bachiller_elemental_graduado_escolar_eso_formacion_profesional_1_grado
+  )
+
+nrow(educativas_na)
+educativas_na %>%
+  count(anio) %>%
+  arrange(anio)
+educativas_na %>%
+  count(barrio, distrito) %>%
+  arrange(desc(n))
+
+educativas_na %>%
+  mutate(
+    na_ambas = is.na(estudios_superiores_licenciado_arquitecto_o_ingeniero_superior_estudios_superiores_no_universitarios_doctorado_estudios_postgraduados) &
+               is.na(bachiller_elemental_graduado_escolar_eso_formacion_profesional_1_grado)
+  ) %>%
+  count(na_ambas)
+panel_interp %>%
+  filter(is.na(edad_media_de_la_poblacion)) %>%
+  count(anio) %>%
+  arrange(anio)
+
+```
+
+```{r}
+panel_interp <- panel_interp %>%
+  group_by(barrio) %>%
+  mutate(
+    edad_media_de_la_poblacion =
+      ifelse(
+        is.na(edad_media_de_la_poblacion) & anio == 2018,
+        edad_media_de_la_poblacion[anio == 2019][1],
+        edad_media_de_la_poblacion
+      )
+  ) %>%
+  ungroup()
+
+
+educ_distrito_anio <- panel_interp %>%
+  group_by(distrito, anio) %>%
+  summarise(
+    estudios_superiores_mean = mean(
+      estudios_superiores_licenciado_arquitecto_o_ingeniero_superior_estudios_superiores_no_universitarios_doctorado_estudios_postgraduados,
+      na.rm = TRUE
+    ),
+    bachiller_mean = mean(
+      bachiller_elemental_graduado_escolar_eso_formacion_profesional_1_grado,
+      na.rm = TRUE
+    ),
+    .groups = "drop"
+  )
+
+educ_distrito_anio %>%
+  filter(
+    is.na(estudios_superiores_mean) |
+    is.na(bachiller_mean)
+  ) %>%
+  count(distrito)
+
+
+mapa_distritos_educ <- tibble::tribble(
+  ~distrito_origen,             ~distrito_donante,
+  "MONCLOA - ARAVACA",           "CHAMBERI",
+  "SAN BLAS - CANILLEJAS",       "BARAJAS",
+  "FUENCARRAL - EL PARDO",       "HORTALEZA"
+)
+
+
+educ_donantes <- panel_interp %>%
+  semi_join(
+    mapa_distritos_educ,
+    by = c("distrito" = "distrito_donante")
+  ) %>%
+  group_by(distrito, anio) %>%
+  summarise(
+    estudios_superiores_donante = mean(
+      estudios_superiores_licenciado_arquitecto_o_ingeniero_superior_estudios_superiores_no_universitarios_doctorado_estudios_postgraduados,
+      na.rm = TRUE
+    ),
+    bachiller_donante = mean(
+      bachiller_elemental_graduado_escolar_eso_formacion_profesional_1_grado,
+      na.rm = TRUE
+    ),
+    .groups = "drop"
+  )
+
+panel_interp <- panel_interp %>%
+  left_join(
+    mapa_distritos_educ,
+    by = c("distrito" = "distrito_origen")
+  ) %>%
+  left_join(
+    educ_donantes,
+    by = c("distrito_donante" = "distrito", "anio" = "anio")
+  ) %>%
+  mutate(
+    estudios_superiores_licenciado_arquitecto_o_ingeniero_superior_estudios_superiores_no_universitarios_doctorado_estudios_postgraduados =
+      ifelse(
+        is.na(estudios_superiores_licenciado_arquitecto_o_ingeniero_superior_estudios_superiores_no_universitarios_doctorado_estudios_postgraduados),
+        estudios_superiores_donante,
+        estudios_superiores_licenciado_arquitecto_o_ingeniero_superior_estudios_superiores_no_universitarios_doctorado_estudios_postgraduados
+      ),
+
+    bachiller_elemental_graduado_escolar_eso_formacion_profesional_1_grado =
+      ifelse(
+        is.na(bachiller_elemental_graduado_escolar_eso_formacion_profesional_1_grado),
+        bachiller_donante,
+        bachiller_elemental_graduado_escolar_eso_formacion_profesional_1_grado
+      )
+  ) %>%
+  select(
+    -distrito_donante,
+    -estudios_superiores_donante,
+    -bachiller_donante
+  )
+
+
+panel_interp %>%
+  summarise(
+    na_edad = sum(is.na(edad_media_de_la_poblacion)),
+    min_edad = min(edad_media_de_la_poblacion, na.rm = TRUE),
+    max_edad = max(edad_media_de_la_poblacion, na.rm = TRUE)
+  )
+
+
+panel_interp <- panel_interp %>%
+  rename(
+    estudios_superiores = 
+      estudios_superiores_licenciado_arquitecto_o_ingeniero_superior_estudios_superiores_no_universitarios_doctorado_estudios_postgraduados,
+    
+    educacion_media_baja = 
+      bachiller_elemental_graduado_escolar_eso_formacion_profesional_1_grado
+  )
+
+
+```
+
+
+```{r}
+
+
+  rf_vars <- panel_interp %>%
+  select(
+    precio_medio_de_la_vivienda_eurosm2,
+    renta_neta_media_anual_de_los_hogares,
+    paro_registrado,
+    estudios_superiores,
+    educacion_media_baja,
+    edad_media_de_la_poblacion,
+    tamano_medio_del_hogar,
+    hogares_unipersonales_mayores_65,
+    proporcion_de_inmigrantes,
+    transacciones_de_vivienda_total,
+    superficie_verde_total_m2,
+    anio
+  )
+
+rf_complete <- rf_vars %>%
+  filter(complete.cases(.))
+
+c(
+  total = nrow(rf_vars),
+  completas = nrow(rf_complete),
+  porcentaje = round(nrow(rf_complete) / nrow(rf_vars) * 100, 1)
+)
+
+cor_data <- rf_complete %>%
+  select(-anio)
+cor_matrix <- cor(cor_data, use = "pairwise.complete.obs")
+round(cor_matrix, 2)
+
+png(
+  filename = "figuras/matriz_correlacion_total_barrios.png",
+  width = 2400,
+  height = 1800,
+  res = 300
+)
+
+corrplot(
+  cor_matrix,
+  method = "color",
+  type = "upper",
+  tl.col = "black",
+  tl.cex = 0.6,
+  addCoef.col = "black",
+  number.cex = 0.5
+)
+
+dev.off()
+
+
+
+
+
+
+
+```
+
+## RANDOM FOREST PREDICIENDO PRECIO MEDIO VIVIENDA
+
+```{r}
+rf_final <- panel_interp %>%
+  select(
+    precio_medio_de_la_vivienda_eurosm2,
+    renta_neta_media_anual_de_los_hogares,
+    paro_registrado,
+    estudios_superiores,
+    edad_media_de_la_poblacion,
+    tamano_medio_del_hogar,
+    proporcion_de_inmigrantes,
+    transacciones_de_vivienda_total,
+    superficie_verde_total_m2,
+    anio
+  ) %>%
+  filter(complete.cases(.))
+
+
+library(randomForest)
+
+set.seed(123)
+
+rf_model <- randomForest(
+  precio_medio_de_la_vivienda_eurosm2 ~ .,
+  data = rf_final,
+  ntree = 500,
+  importance = TRUE
+)
+
+
+
+importance_df <- data.frame(
+  variable = rownames(importance(rf_model, type = 1)),
+  importance = importance(rf_model, type = 1)[,1]
+) %>%
+  arrange(desc(importance))
+
+importance_df
+
+
+png(
+  filename = "figuras/importancia_random_forest_barrio_ano.png",
+  width = 2400,
+  height = 1800,
+  res = 300
+)
+
+varImpPlot(
+  rf_model,
+  type = 1,
+  main = "Importancia de variables (Permutation importance)",
+  cex = 0.8
+)
+
+dev.off()
+
+
+
+```
+## Clustering barrio año
+```{r}
+# PROCESO DE CALCULO DE CLUSTERING CON VARIABLES DE EVOLUCION PARA PREDECIR TIPOS DE EVOLUCION DE BARRIOS
+
+x_df <- panel_interp %>%
+  select(
+    barrio,
+    anio,
+    renta_neta_media_anual_de_los_hogares,
+    estudios_superiores,
+    paro_registrado,
+    edad_media_de_la_poblacion,
+    proporcion_de_inmigrantes,
+    superficie_verde_total_m2
+  )
+
+x <- x_df %>%
+  select(-barrio, -anio)
+
+x <- na.omit(x)
+x <- scale(x)
+
+
+idx_cluster <- complete.cases(x_df %>% select(-barrio, -anio))
+x_meta <- x_df[idx_cluster, c("barrio", "anio")]
+
+
+library(cluster)
+
+d <- daisy(x, metric = "euclidean")
+
+resultados  <- numeric(9)
+resultados2 <- numeric(9)
+
+for (i in 2:9) {
+
+  fit <- kmeans(x, centers = i, nstart = 50)
+  y_cluster <- fit$cluster
+  sk <- silhouette(y_cluster, d)
+
+  resultados[i]  <- mean(sk[, 3])
+  resultados2[i] <- sum(fit$withinss)
+
+  cat("k =", i,
+      " | silhouette =", round(resultados[i], 3),
+      " | withinss =", round(resultados2[i], 1), "\n")
+
+  png(
+    filename = paste0("figuras/clustering/kmeans_barrio_año_k_", i, ".png"),
+    width = 2400,
+    height = 1800,
+    res = 300
+  )
+
+  clusplot(
+    x,
+    y_cluster,
+    color  = TRUE,
+    shade  = TRUE,
+    labels = 1,
+    lines  = 0,
+    main   = paste("k =", i)
+  )
+
+  dev.off()
+}
+
+df_silhouette <- data.frame(
+  k = 2:9,
+  silhouette_media = resultados[2:9],
+  withinss = resultados2[2:9]
+)
+
+library(ggplot2)
+
+ggplot(df_silhouette, aes(x = k, y = silhouette_media)) +
+  geom_line(color = "steelblue", linewidth = 1) +
+  geom_point(size = 3, color = "steelblue") +
+  geom_vline(xintercept = 3, linetype = "dashed", color = "red") +
+  scale_x_continuous(breaks = 2:9) +
+  labs(
+    title = "Índice de silhouette medio según número de clusters",
+    subtitle = "Selección del número óptimo de clusters (k)",
+    x = "Número de clusters (k)",
+    y = "Silhouette media"
+  ) +
+  theme_minimal()
+
+ggsave(
+  filename = "figuras/shiloutte_global.png",
+  plot = last_plot(),
+  width = 8,
+  height = 6,
+  dpi = 300
+)
+```
+
+## explicacion variables importantes para clustering k=3 con RF
+
+```{r}
+# ================================
+# RF EXPLICATIVO DEL CLUSTERING
+# ================================
+
+library(randomForest)
+
+set.seed(123)
+
+# 1️⃣ K definitivo (ajusta si no es 4)
+k_opt <- 3
+
+# 2️⃣ Recalcular k-means definitivo
+fit_final <- kmeans(
+  x,
+  centers = k_opt,
+  nstart = 50
+)
+
+# 3️⃣ Construir dataset FINAL para RF
+#    - cluster como target
+#    - variables originales (NO escaladas)
+rf_cluster_data <- x_meta %>%
+  mutate(cluster = factor(fit_final$cluster)) %>%
+  left_join(
+    panel_interp %>%
+      select(
+        barrio,
+        anio,
+        renta_neta_media_anual_de_los_hogares,
+        estudios_superiores,
+        paro_registrado,
+        edad_media_de_la_poblacion,
+        proporcion_de_inmigrantes,
+        superficie_verde_total_m2
+      ),
+    by = c("barrio", "anio")
+  ) %>%
+  select(
+    cluster,
+    renta_neta_media_anual_de_los_hogares,
+    estudios_superiores,
+    paro_registrado,
+    edad_media_de_la_poblacion,
+    proporcion_de_inmigrantes,
+    superficie_verde_total_m2
+  ) %>%
+  filter(complete.cases(.))
+
+# 4️⃣ Entrenar Random Forest de CLASIFICACIÓN
+rf_cluster_model <- randomForest(
+  cluster ~ .,
+  data = rf_cluster_data,
+  ntree = 500,
+  importance = TRUE
+)
+
+# 5️⃣ Resultados básicos
+print(rf_cluster_model)
+
+# 6️⃣ Importancia de variables (permutation importance)
+importance_cluster <- data.frame(
+  variable = rownames(importance(rf_cluster_model, type = 1)),
+  importance = importance(rf_cluster_model, type = 1)[,1]
+)
+
+importance_cluster <- importance_cluster[order(-importance_cluster$importance), ]
+
+print(importance_cluster)
+
+
+png(
+  filename = "figuras/importancia_clusters_random_forest_barrio_ano.png",
+  width = 2400,
+  height = 1800,
+  res = 300
+)
+
+# 7️⃣ Gráfico de importancia
+varImpPlot(
+  rf_cluster_model,
+  type = 1,
+  main = "Importancia de variables en la clasificación de clusters"
+)
+
+dev.off
+
+
+
+```
+
+
+## mapeo clusters por barrio año
+
+```{r}
+
+library(sf)
+library(dplyr)
+library(ggplot2)
+
+# Dataset mínimo para mapear clusters barrio–año
+cluster_barrio_anio <- x_meta %>%
+  mutate(cluster = factor(fit_final$cluster))
+head(cluster_barrio_anio)
+table(cluster_barrio_anio$cluster)
+
+
+
+# Asegurarse de que cluster es factor
+cluster_barrio_anio$cluster <- factor(cluster_barrio_anio$cluster)
+
+# Loop por año
+for (y in 2018:2024) {
+
+  # 1️⃣ Subset del clustering para el año y
+  cluster_anio <- cluster_barrio_anio %>%
+    filter(anio == y)
+
+  # 2️⃣ Join espacial
+  mapa_clusters_anio <- barrios_sf %>%
+    left_join(
+      cluster_anio,
+      by = c("BARRIO_MAY" = "barrio")
+    )
+
+  # 3️⃣ Mapa
+  p <- ggplot(mapa_clusters_anio) +
+    geom_sf(
+      aes(fill = cluster),
+      color = "white",
+      linewidth = 0.2
+    ) +
+    scale_fill_brewer(
+      palette = "Set2",
+      na.value = "grey90",
+      name = "Cluster"
+    ) +
+    labs(
+      title = paste("Clusters de gentrificación en los barrios de Madrid (", y, ")", sep = ""),
+      subtitle = "Clasificación basada en variables socioeconómicas, educativas y ambientales"
+    ) +
+    theme_minimal() +
+    theme(
+      panel.grid = element_blank(),
+      legend.position = "right"
+    )
+
+  # 4️⃣ Guardar figura
+  ggsave(
+    filename = paste0("figuras/mapa_gentrificacion_k3_", y, ".png"),
+    plot = p,
+    width = 8,
+    height = 6,
+    dpi = 300
+  )
+}
+
+
+```
+## Corelacion, RF y clustering para entorno Madrid Rio:
+
+```{r}
+
+library(dplyr)
+library(corrplot)
+
+# Subset barrios entorno Madrid Río
+panel_rio <- panel_interp %>%
+  filter(distancia_a_madrid_rio_m < 2000) %>%
+  select(
+    precio_medio_de_la_vivienda_eurosm2,
+    renta_neta_media_anual_de_los_hogares,
+    paro_registrado,
+    estudios_superiores,
+    edad_media_de_la_poblacion,
+    tamano_medio_del_hogar,
+    proporcion_de_inmigrantes,
+    transacciones_de_vivienda_total,
+    superficie_verde_total_m2,
+    distancia_a_madrid_rio_m,
+    anio,
+    barrio
+  ) %>%
+  filter(complete.cases(.))
+
+# Matriz de correlación
+cor_matrix_rio <- cor(
+  panel_rio %>% select(-barrio, -anio),
+  use = "pairwise.complete.obs"
+)
+
+# Guardar corrplot
+png("figuras/corrplot_madrid_rio.png", width = 2400, height = 2400, res = 300)
+corrplot(
+  cor_matrix_rio,
+  method = "color",
+  type = "upper",
+  tl.col = "black",
+  tl.cex = 0.8
+)
+dev.off()
+
+
+
+
+```
+```{r}
+library(randomForest)
+
+set.seed(123)
+
+rf_rio <- randomForest(
+  precio_medio_de_la_vivienda_eurosm2 ~ 
+    renta_neta_media_anual_de_los_hogares +
+    paro_registrado +
+    estudios_superiores +
+    edad_media_de_la_poblacion +
+    tamano_medio_del_hogar +
+    proporcion_de_inmigrantes +
+    transacciones_de_vivienda_total +
+    superficie_verde_total_m2 +
+    distancia_a_madrid_rio_m +
+    anio,
+  data = panel_rio,
+  ntree = 500,
+  importance = TRUE
+)
+
+# Importancia
+png("figuras/rf_importancia_precio_madrid_rio.png", width = 2400, height = 1800, res = 300)
+varImpPlot(
+  rf_rio,
+  type = 1,
+  main = "Importancia de variables – Precio vivienda (Madrid Río)"
+)
+dev.off()
+
+
+```
+
+```{r}
+library(cluster)
+
+# Variables estructurales (sin precio)
+x_df_rio <- panel_rio %>%
+  select(
+    barrio,
+    anio,
+    renta_neta_media_anual_de_los_hogares,
+    estudios_superiores,
+    paro_registrado,
+    proporcion_de_inmigrantes,
+    superficie_verde_total_m2,
+    distancia_a_madrid_rio_m
+  )
+
+x_rio <- x_df_rio %>%
+  select(-barrio, -anio)
+
+x_rio <- scale(x_rio)
+
+# Distancias
+d_rio <- daisy(x_rio, metric = "euclidean")
+
+# K = 3 (consistente con global)
+set.seed(123)
+fit_rio <- kmeans(x_rio, centers = 3, nstart = 50)
+
+# Guardar clusplot
+png("figuras/clusplot_madrid_rio_k3.png", width = 2400, height = 1800, res = 300)
+clusplot(
+  x_rio,
+  fit_rio$cluster,
+  color = TRUE,
+  shade = TRUE,
+  labels = 2,
+  lines = 0,
+  main = "Clustering barrio–año entorno Madrid Río (k = 3)"
+)
+dev.off()
+
+# Dataset mínimo de clusters
+cluster_rio <- x_df_rio %>%
+  mutate(cluster = factor(fit_rio$cluster))
+
+
+```
+
+```{r}
+rf_cluster_rio <- randomForest(
+  cluster ~ 
+    renta_neta_media_anual_de_los_hogares +
+    estudios_superiores +
+    paro_registrado +
+    proporcion_de_inmigrantes +
+    superficie_verde_total_m2 +
+    distancia_a_madrid_rio_m,
+  data = cluster_rio,
+  ntree = 500,
+  importance = TRUE
+)
+
+# Importancia
+png("figuras/rf_importancia_cluster_madrid_rio.png", width = 2400, height = 1800, res = 300)
+varImpPlot(
+  rf_cluster_rio,
+  type = 1,
+  main = "Importancia de variables – Clasificación de clusters (Madrid Río)"
+)
+dev.off()
+
+
+```
+
+```{r}
+library(ggplot2)
+library(dplyr)
+# Crear mapa base SOLO con barrios del entorno Madrid Río
+mapa_base_madrid_rio <- barrios_sf %>%
+  mutate(BARRIO_MAY = toupper(BARRIO_MAY)) %>%
+  filter(BARRIO_MAY %in% toupper(unique(cluster_rio$barrio)))
+
+cluster_rio$barrio <- toupper(cluster_rio$barrio)
+
+for (y in sort(unique(cluster_rio$anio))) {
+
+  mapa_rio_anio <- mapa_base_madrid_rio %>%
+    left_join(
+      cluster_rio %>% filter(anio == y),
+      by = c("BARRIO_MAY" = "barrio")
+    )
+
+  p <- ggplot(mapa_rio_anio) +
+    geom_sf(
+      aes(fill = cluster),
+      color = "white",
+      linewidth = 0.3
+    ) +
+    scale_fill_brewer(
+      palette = "Set2",
+      na.value = "grey90",
+      name = "Cluster"
+    ) +
+    labs(
+      title = paste("Clusters barrio–año en el entorno de Madrid Río (", y, ")", sep = ""),
+      subtitle = "Clustering estructural local (k = 3)"
+    ) +
+    theme_minimal() +
+    theme(
+      panel.grid = element_blank(),
+      legend.position = "right"
+    )
+
+  ggsave(
+    filename = paste0("figuras/mapa_clusters_madrid_rio_zoom_", y, ".png"),
+    plot = p,
+    width = 7,
+    height = 5,
+    dpi = 300
+  )
+}
+
+```
+
+
+# CLUSTERING EVOLUCION con variables dinamicas temporales
+```{r}
+
+df_cambios <- panel_ancho_unico %>%
+  filter(anio %in% c(2018, 2024)) %>%
+  select(
+    barrio,
+    anio,
+    `PRECIO MEDIO DE LA VIVIENDA EUROSM2`,
+    `RENTA NETA MEDIA ANUAL DE LOS HOGARES`,
+    `PARO REGISTRADO`,
+    `TAMANO MEDIO DEL HOGAR`,
+    `EDAD MEDIA DE LA POBLACION`,
+    `PROPORCION DE INMIGRANTES`,
+    `ESTUDIOS SUPERIORES LICENCIADO ARQUITECTO O INGENIERO SUPERIOR ESTUDIOS SUPERIORES NO UNIVERSITARIOS DOCTORADO ESTUDIOS POSTGRADUADOS`,
+    `TRANSACCIONES DE VIVIENDA TOTAL`,
+    `SUPERFICIE VERDE TOTAL M2`,
+    DISTANCIA_A_MADRID_RIO_M = `DISTANCIA A MADRID RIO M`
+  ) %>%
+  pivot_wider(
+    names_from = anio,
+    values_from = -c(barrio, anio)
+  )
+
+# modifico las variables que quiero que vayan de otra manera al PCA / clustering
+df_cambios <- df_cambios %>%
+  mutate(
+    across(
+      everything(),
+      ~ ifelse(trimws(.) %in% c("NA", ""), NA, .)
+    )
+  )
+
+df_cambios <- df_cambios %>%
+  mutate(
+    across(
+      ends_with("_2018") | ends_with("_2024"),
+      ~ if (is.list(.)) map_dbl(., ~ first(na.omit(.))) else .
+    )
+  )
+
+df_cambios <- df_cambios %>%
+  mutate(
+    across(
+      ends_with("_2018") | ends_with("_2024"),
+      as.numeric
+    )
+  )
+
+
+df_cluster <- df_cambios %>%
+  mutate(
+    PRECIO_VAR_PCT =
+      100 * (`PRECIO MEDIO DE LA VIVIENDA EUROSM2_2024` -
+             `PRECIO MEDIO DE LA VIVIENDA EUROSM2_2018`) /
+            `PRECIO MEDIO DE LA VIVIENDA EUROSM2_2018`,
+
+    RENTA_VAR_PCT =
+      100 * (`RENTA NETA MEDIA ANUAL DE LOS HOGARES_2024` -
+             `RENTA NETA MEDIA ANUAL DE LOS HOGARES_2018`) /
+            `RENTA NETA MEDIA ANUAL DE LOS HOGARES_2018`,
+
+    PARO_VAR_PCT =
+      100 * (`PARO REGISTRADO_2024` -
+             `PARO REGISTRADO_2018`) /
+            `PARO REGISTRADO_2018`,
+
+    TRANSACCIONES_VAR_PCT =
+      100 * (`TRANSACCIONES DE VIVIENDA TOTAL_2024` -
+             `TRANSACCIONES DE VIVIENDA TOTAL_2018`) /
+            `TRANSACCIONES DE VIVIENDA TOTAL_2018`,
+
+    INMIGRANTES_VAR =
+      `PROPORCION DE INMIGRANTES_2024` -
+      `PROPORCION DE INMIGRANTES_2018`,
+
+    EDUC_SUP_VAR =
+      `ESTUDIOS SUPERIORES LICENCIADO ARQUITECTO O INGENIERO SUPERIOR ESTUDIOS SUPERIORES NO UNIVERSITARIOS DOCTORADO ESTUDIOS POSTGRADUADOS_2024` -
+      `ESTUDIOS SUPERIORES LICENCIADO ARQUITECTO O INGENIERO SUPERIOR ESTUDIOS SUPERIORES NO UNIVERSITARIOS DOCTORADO ESTUDIOS POSTGRADUADOS_2018`
+  )
+
+df_cluster <- df_cluster %>%
+  mutate(
+    TAMANO_HOGAR_VAR =
+      `TAMANO MEDIO DEL HOGAR_2024` -
+      `TAMANO MEDIO DEL HOGAR_2018`,
+
+    EDAD_MEDIA_VAR =
+      `EDAD MEDIA DE LA POBLACION_2024` -
+      `EDAD MEDIA DE LA POBLACION_2018`,
+
+    SUPERFICIE_VERDE_2024 =
+      `SUPERFICIE VERDE TOTAL M2_2024`
+  )
+
+df_cluster <- df_cluster %>%
+  mutate(
+    PRECIO_VAR_PCT = ifelse(
+      is.infinite(PRECIO_VAR_PCT),
+      NA,
+      PRECIO_VAR_PCT
+    )
+  )
+
+
+vars_core <- c(
+  "PRECIO_VAR_PCT",
+  "EDUC_SUP_VAR",
+  "PARO_VAR_PCT",
+  "EDUC_SUP_VAR",
+  "DISTANCIA_A_MADRID_RIO_M_2024"
+)
+
+
+df_cluster_ext <- df_cluster %>%
+  select(
+    barrio,
+    PRECIO_VAR_PCT,
+    TRANSACCIONES_VAR_PCT,
+    RENTA_VAR_PCT,
+    PARO_VAR_PCT,
+    INMIGRANTES_VAR,
+    EDUC_SUP_VAR,
+    TAMANO_HOGAR_VAR,
+    SUPERFICIE_VERDE_2024,
+    DISTANCIA_A_MADRID_RIO_M_2024
+  ) %>%
+  filter(
+    !if_any(all_of(vars_core), is.na)
+  )
+
+
+nrow(df_cluster_ext)
+colSums(is.na(df_cluster_ext))
+
+
+```
+
+
+```{r}
+
+df_cor <- df_cluster_ext %>%
+  select(-barrio)
+
+cor_mat <- cor(
+  df_cor,
+  use = "pairwise.complete.obs"
+)
+
+library(corrplot)
+
+# Importancia
+png("figuras/matriz_correlacion_evolucion.png", width = 2400, height = 1800, res = 300)
+
+
+corrplot(
+  cor_mat,
+  method = "color",
+  type = "upper",
+  tl.col = "black",
+  tl.cex = 0.5,        # 👈 tamaño de los nombres de variables
+  addCoef.col = "black",
+  number.cex = 0.7,    # 👈 tamaño de los coeficientes
+  mar = c(0, 0, 2, 2)  # 👈 márgenes
+)
+
+
+dev.off()
+
+
+
+```
+
+```{r}
+library(cluster)
+# Dataset final para clustering
+df_cluster_final <- df_cluster_final %>%
+  mutate(
+    PRECIO_VAR_PCT = ifelse(is.infinite(PRECIO_VAR_PCT), NA, PRECIO_VAR_PCT)
+  )
+
+
+# matriz numérica para clustering
+x <- df_cluster_final %>%
+  select(
+    PRECIO_VAR_PCT,
+    PARO_VAR_PCT,
+    INMIGRANTES_VAR,
+    EDUC_SUP_VAR
+  ) %>%
+  as.data.frame()
+
+str(x)
+summary(x)
+colSums(is.na(x))
+colSums(is.infinite(as.matrix(x)))
+
+
+# eliminar filas con NA SOLO AQUÍ
+x <- na.omit(x)
+
+nrow(x)          # debería ser ~125
+any(is.na(x))    # FALSE
+
+x <- scale(x)
+
+
+d <- daisy(x, metric = "euclidean")
+
+
+library(cluster)
+
+resultados  <- numeric(9)
+resultados2 <- numeric(9)
+
+for (i in 2:9) {
+
+  fit <- kmeans(
+    x,
+    centers = i,
+    nstart = 50
+  )
+  
+  y_cluster <- fit$cluster
+  
+  sk <- silhouette(y_cluster, d)
+  
+  resultados[i]  <- mean(sk[, 3])
+  resultados2[i] <- sum(fit$withinss)
+  
+  cat("k =", i,
+      " | silhouette =", round(resultados[i], 3),
+      " | withinss =", round(resultados2[i], 1), "\n")
+  
+ # 🔽 ABRIR DISPOSITIVO
+  png(
+    filename = paste0("figuras/clustering/kmeans_GLOBAL_k_", i, ".png"),
+    width = 2400,
+    height = 1800,
+    res = 300
+  )
+
+  clusplot(
+    x,
+    y_cluster,
+    color  = TRUE,
+    shade  = TRUE,
+    labels = 1,
+    lines  = 0,
+    main   = paste("k =", i)
+  )
+
+  dev.off()  # 🔼 CERRAR DISPOSITIVO
+
+}
+```
+
+
+```{r}
+
+df_silhouette <- data.frame(
+  k = 2:9,
+  silhouette_media = resultados[2:9],
+  withinss = resultados2[2:9]
+)
+
+library(ggplot2)
+
+ggplot(df_silhouette, aes(x = k, y = silhouette_media)) +
+  geom_line(color = "steelblue", linewidth = 1) +
+  geom_point(size = 3, color = "steelblue") +
+  geom_vline(xintercept = 3, linetype = "dashed", color = "red") +
+  scale_x_continuous(breaks = 2:9) +
+  labs(
+    title = "Índice de silhouette medio según número de clusters",
+    subtitle = "Selección del número óptimo de clusters (k)",
+    x = "Número de clusters (k)",
+    y = "Silhouette media"
+  ) +
+  theme_minimal()
+
+ggsave(
+  filename = "figuras/shiloutte_global.png",
+  plot = last_plot(),
+  width = 8,
+  height = 6,
+  dpi = 300
+)
+```
+
+
+```{r}
+
+# ver que barrios van en cada cluster de k=3
+x_df <- df_cluster_ext %>%
+  select(
+    barrio,
+    PRECIO_VAR_PCT,
+    PARO_VAR_PCT,
+    INMIGRANTES_VAR,
+    EDUC_SUP_VAR,
+    DISTANCIA_A_MADRID_RIO_M_2024
+  ) %>%
+  drop_na()
+
+
+x <- x_df %>%
+  select(-barrio) %>%
+  scale()
+
+fit_final <- kmeans(x, centers = 3, nstart = 50)
+
+x_df <- x_df %>%
+  mutate(cluster_total = factor(fit_final$cluster))
+
+df_cluster_final <- df_cluster_final %>%
+  left_join(
+    x_df %>% select(barrio, cluster_total),
+    by = "barrio"
+  )
+
+table(df_cluster_final$cluster_total, useNA = "ifany")
+
+library(sf)
+library(dplyr)
+
+mapa_clusters <- barrios_sf %>%
+  left_join(
+    x_df %>% select(barrio, cluster_total),
+    by = c("BARRIO_MAY" = "barrio")
+  )
+
+
+library(ggplot2)
+
+ggplot(mapa_clusters) +
+  geom_sf(
+    aes(fill = cluster_total),
+    color = "white",
+    linewidth = 0.2
+  ) +
+  scale_fill_brewer(
+    palette = "Set2",
+    na.value = "grey90",
+    name = "Cluster"
+  ) +
+  labs(
+    title = "Clusters de gentrificación en los barrios de Madrid",
+    subtitle = "Clasificación basada en dinámica socioeconómica e inmobiliaria"
+  ) +
+  theme_minimal() +
+  theme(
+    panel.grid = element_blank(),
+    legend.position = "right"
+  )
+
+ggsave(
+  filename = "figuras/mapa_gentrificacion_GLOBAL_k3.png",
+  plot = last_plot(),
+  width = 8,
+  height = 6,
+  dpi = 300
+)
+```
+
+```{r}
+
+barrios_madrid_rio <- df_cluster_final %>%
+  filter(DISTANCIA_A_MADRID_RIO_M_2024 <= 1500) %>%
+  pull(barrio)
+
+barrios_control <- c(
+  "SOL",
+  "SALAMANCA",
+  "NUMANCIA",
+  "CASCO HISTORICO DE VALLECAS",
+  "SAN FERMIN",
+  "PUENTE DE VALLECAS",
+  "ENTREVÍAS",
+  "SAN DIEGO",
+  "PALOMERAS BAJAS",
+  "CASA DE CAMPO"
+)
+barrios_cluster_mr_control <- union(
+  barrios_madrid_rio,
+  barrios_control
+)
+
+df_cluster_mr_control <- df_cluster_final %>%
+  filter(barrio %in% barrios_cluster_mr_control)
+
+x_mr_control_df <- df_cluster_mr_control %>%
+  select(
+    barrio,
+    PRECIO_VAR_PCT,
+    PARO_VAR_PCT,
+    INMIGRANTES_VAR,
+    EDUC_SUP_VAR
+  ) %>%
+  na.omit()
+
+x_mr_control <- x_mr_control_df %>%
+  select(-barrio) %>%
+  scale()
+
+library(cluster)
+
+d_mr_control <- daisy(x_mr_control)
+
+for (k in 2:5) {
+  fit <- kmeans(x_mr_control, centers = k, nstart = 50)
+  sil <- silhouette(fit$cluster, d_mr_control)
+  
+  cat(
+    "k =", k,
+    "| silhouette media =",
+    round(mean(sil[, 3]), 3), "\n"
+  )
+}
+
+
+```
+
+```{r}
+library(cluster)
+
+resultados_mr  <- numeric(5)
+resultados2_mr <- numeric(5)
+
+d_mr <- daisy(x_mr_control)
+
+for (k in 2:4) {
+  fit <- kmeans(x_mr_control, centers = k, nstart = 50)
+  sil <- silhouette(fit$cluster, d_mr)
+  
+  resultados_mr[k]  <- mean(sil[, 3])
+  resultados2_mr[k] <- sum(fit$withinss)
+  
+  cat(
+    "k =", k,
+    "| silhouette =", round(resultados_mr[k], 3),
+    "| withinss =", round(resultados2_mr[k], 1), "\n"
+  )
+}
+
+df_sil_mr <- data.frame(
+  k = 2:4,
+  silhouette_media = resultados_mr[2:4],
+  withinss = resultados2_mr[2:4]
+)
+
+library(ggplot2)
+
+ggplot(df_sil_mr, aes(x = k, y = silhouette_media)) +
+  geom_line(color = "steelblue", linewidth = 1) +
+  geom_point(color = "steelblue", size = 3) +
+  scale_x_continuous(breaks = 2:4) +
+  labs(
+    title = "Índice de silhouette – Madrid Río y barrios control",
+    subtitle = "Selección del número de clusters (k)",
+    x = "Número de clusters (k)",
+    y = "Silhouette media"
+  ) +
+  theme_minimal()
+
+ggsave(
+  filename = "figuras/silhoutte_Madrid_rio_global.png",
+  plot = last_plot(),
+  width = 8,
+  height = 6,
+  dpi = 300
+)
+
+set.seed(123)
+
+fit_mr_control <- kmeans(
+  x_mr_control,
+  centers = 3,
+  nstart = 50
+)
+
+x_mr_control_df <- x_mr_control_df %>%
+  mutate(cluster_mr_control = factor(fit_mr_control$cluster))
+
+x_mr_control_df %>%
+  group_by(cluster_mr_control) %>%
+  summarise(
+    n_barrios = n(),
+    barrios = paste(sort(barrio), collapse = ", "),
+    .groups = "drop"
+  )
+
+mapa_clusters_mr_control <- barrios_sf %>%
+  left_join(
+    x_mr_control_df %>%
+      select(barrio, cluster_mr_control),
+    by = c("BARRIO_MAY" = "barrio")
+  ) %>%
+  filter(BARRIO_MAY %in% barrios_cluster_mr_control)
+
+ggplot(mapa_clusters_mr_control) +
+  geom_sf(
+    aes(fill = cluster_mr_control),
+    color = "white",
+    linewidth = 0.3
+  ) +
+  scale_fill_brewer(
+    palette = "Set1",
+    na.value = "grey90",
+    name = "Cluster"
+  ) +
+  labs(
+    title = "Clustering de barrios del entorno de Madrid Río",
+    subtitle = "Incluyendo barrios de control"
+  ) +
+  theme_minimal() +
+  theme(
+    panel.grid = element_blank(),
+    legend.position = "right"
+  )
+
+ggsave(
+  filename = "figuras/mapa clusters madrid rio global.png",
+  plot = last_plot(),
+  width = 8,
+  height = 6,
+  dpi = 300
+)
+```
+
+# RANDOM FOREST
+
+```{r}
+vars_rf <- c(
+  "PRECIO_VAR_PCT",
+  "PARO_VAR_PCT",
+  "INMIGRANTES_VAR",
+  "EDUC_SUP_VAR"
+)
+
+
+df_rf_global <- df_cluster_final %>%
+  select(
+    cluster,
+    all_of(vars_rf)
+  ) %>%
+  drop_na()
+
+table(df_rf_global$cluster)
+
+library(randomForest)
+
+set.seed(123)
+
+rf_global <- randomForest(
+  cluster ~ .,
+  data = df_rf_global,
+  ntree = 500,
+  importance = TRUE
+)
+
+
+importance(rf_global)
+
+
+library(dplyr)
+library(tibble)
+
+imp_df <- importance(rf_global) %>%
+  as.data.frame() %>%
+  rownames_to_column("variable") %>%
+  select(variable, MeanDecreaseAccuracy) %>%
+  arrange(MeanDecreaseAccuracy)
+
+
+library(ggplot2)
+
+ggplot(imp_df, aes(
+  x = MeanDecreaseAccuracy,
+  y = reorder(variable, MeanDecreaseAccuracy)
+)) +
+  geom_col(fill = "steelblue") +
+  labs(
+    title = "Importancia de variables en el Random Forest (modelo global)",
+    subtitle = "Medida por la disminución media de la precisión",
+    x = "Mean Decrease Accuracy",
+    y = NULL
+  ) +
+  theme_minimal()
+
+ggsave(
+  filename = "figuras/importancia variables RF GLOBAL.png",
+  plot = last_plot(),
+  width = 8,
+  height = 6,
+  dpi = 300
+)
+
+```
+
+
+```{r}
+
+df_rf_mr <- x_mr_control_df %>%
+  select(
+    cluster_mr_control,
+    PRECIO_VAR_PCT,
+    PARO_VAR_PCT,
+    INMIGRANTES_VAR,
+    EDUC_SUP_VAR
+  )
+
+
+
+set.seed(123)
+
+rf_mr <- randomForest(
+  cluster_mr_control ~ .,
+  data = df_rf_mr,
+  ntree = 500,
+  importance = TRUE
+)
+
+
+library(dplyr)
+library(tibble)
+
+imp_mr <- importance(rf_mr) %>%
+  as.data.frame() %>%
+  rownames_to_column("variable") %>%
+  select(variable, MeanDecreaseAccuracy) %>%
+  arrange(MeanDecreaseAccuracy)
+
+library(ggplot2)
+
+ggplot(imp_mr, aes(
+  x = MeanDecreaseAccuracy,
+  y = reorder(variable, MeanDecreaseAccuracy)
+)) +
+  geom_col(fill = "darkred") +
+  labs(
+    title = "Importancia de variables – Random Forest entorno Madrid Río",
+    subtitle = "Modelo con barrios de control",
+    x = "Mean Decrease Accuracy",
+    y = NULL
+  ) +
+  theme_minimal()
+
+
+ggsave(
+  filename = "figuras/importancia variables RF Madrid rio GLOBAL.png",
+  plot = last_plot(),
+  width = 8,
+  height = 6,
+  dpi = 300
+)
+```
+
+##CODIFICO VARIABLES CONTINUAS
+
+```{r}
+crear_cuartiles <- function(x, unidad = "", digitos = 0) {
+
+  q <- quantile(x, c(0.25, 0.5, 0.75), na.rm = TRUE)
+
+  f <- function(z) {
+    format(round(z, digitos), big.mark = ".", decimal.mark = ",")
+  }
+
+  etiquetas <- c(
+    paste0("< ", f(q[1]), ifelse(unidad != "", paste0(" ", unidad), "")),
+    paste0(f(q[1]), " – ", f(q[2]), ifelse(unidad != "", paste0(" ", unidad), "")),
+    paste0(f(q[2]), " – ", f(q[3]), ifelse(unidad != "", paste0(" ", unidad), "")),
+    paste0("≥ ", f(q[3]), ifelse(unidad != "", paste0(" ", unidad), ""))
+  )
+
+  list(
+    q_num = cut(
+      x,
+      breaks = c(-Inf, q[1], q[2], q[3], Inf),
+      labels = c(1, 2, 3, 4),
+      include.lowest = TRUE
+    ) |> as.integer(),
+
+    q_label = cut(
+      x,
+      breaks = c(-Inf, q[1], q[2], q[3], Inf),
+      labels = etiquetas,
+      include.lowest = TRUE
+    )
+  )
+}
+
+
+res <- crear_cuartiles(panel_ancho$`SUPERFICIE VERDE TOTAL M2`)
+
+panel_ancho <- panel_ancho %>%
+  mutate(
+    SUPERFICIE_VERDE_Q = res$q_num,
+    SUPERFICIE_VERDE_Q_LABEL = res$q_label
+  )
+
+
+
+```
+
+```{r}
+vars_cuartiles <- tibble::tribble(
+  ~var, ~unidad, ~digitos,
+  "SUPERFICIE VERDE TOTAL M2", "m²", 0,
+  "PRECIO MEDIO DE LA VIVIENDA EUROSM2", "€/m²", 0,
+  "PARO REGISTRADO", "personas", 0,
+  "RENTA NETA MEDIA ANUAL DE LOS HOGARES", "€", 0,
+  "PROPORCION DE INMIGRANTES", "", 2,
+  "TAMANO MEDIO DEL HOGAR", "", 2,
+  "NUMERO DE PARQUES GRANDES 15000 M2", "parques", 0
+)
+
+for (i in seq_len(nrow(vars_cuartiles))) {
+
+  v <- vars_cuartiles$var[i]
+  unidad <- vars_cuartiles$unidad[i]
+  dig <- vars_cuartiles$digitos[i]
+
+  res <- crear_cuartiles(panel_ancho[[v]], unidad = unidad, digitos = dig)
+
+  base <- gsub(" ", "_", v)
+
+  panel_ancho[[paste0(base, "_Q")]] <- res$q_num
+  panel_ancho[[paste0(base, "_Q_LABEL")]] <- res$q_label
+}
+
+
+```
