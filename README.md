@@ -86,8 +86,3 @@ Los datos utilizados provienen de **fuentes públicas oficiales**, principalment
 - **Directora del TFM:** Anna Muñoz Bollas  
 - **Titulación:** Máster Universitario en Ciencia de Datos  
 - **Universidad:** Universitat Oberta de Catalunya (UOC)
-
-## Nota final
-
-Este repositorio tiene un propósito **académico y de investigación**.  
-Los resultados y conclusiones deben interpretarse en el contexto del estudio y no constituyen evaluaciones normativas de políticas públicas.
